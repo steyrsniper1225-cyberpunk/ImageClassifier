@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
-from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
+from tensorflow.keras.applications import VGG16, ResNet50V2, EfficientNetV2S
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 
@@ -17,11 +17,12 @@ cls_esd = "ESD"
 classes = [cls_esd, cls_ok] # Label : esd(0), ok(1)
 class_mode = "binary"
 
-img_size = (224, 224)
-BATCH = 20
+img_size = (224, 224) # [Check] (256, 256)으로 size 변경하기, resize (224, 224) 삭제 필요
+BATCH = 20 # [Check] 20 -> 16으로 변경
 VAL_SPLIT = 0.2
 SEED = 42
-EPOCHS_STAGE1 = 20
+EPOCHS_STAGE1 = 10 # [Check] 20 -> 10으로 기본값을 변경
+EPOCHS_STAGE2 = 10 # [Check] Stage2 미세 튜닝 추가
 
 # ========== Set ROI ==========
 ROI_X, ROI_Y = 570, 670
@@ -30,8 +31,8 @@ PAD = 28
 OUT_H, OUT_W = img_size[0], img_size[1]
 
 ADD_EDGE = True
-ADD_DARK = True
-ADD_DIFF = False # optional
+ADD_DARK = False # closed channel
+ADD_DIFF = False # closed channel
 
 AUTOTUNE = tf.data.AUTOTUNE
 tf.random.set_seed(SEED)
