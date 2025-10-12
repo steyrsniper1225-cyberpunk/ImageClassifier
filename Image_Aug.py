@@ -40,20 +40,20 @@ else:
                     y_offset = random.randint(-20, 20) # Y축 shift
                     background = Image.new(flipped_image.mode, flipped_image.size)
                     background.paste(flipped_image, (x_offset, y_offset))              
-                    output_filename = f"{base_filename}_flip_{i:04d}{ext}"
+                    output_filename = f"{base_filename}_{i:04d}{ext}"
                     output_path = os.path.join(output_dir, output_filename)
                     background.save(output_path)
                     total_generated_count += 1
 
                 # 90도 단위 회전 10장 생성
-                for i in range(1, 11):
+                for i in range(11, 21):
                     angle = random.choice([90, 180, 270])
                     rotated_image = original_image.rotate(angle, expand=True)
                     x_offset = random.randint(-20, 20)
                     y_offset = random.randint(-20, 20)
                     background = Image.new(rotated_image.mode, rotated_image.size)
                     background.paste(rotated_image, (x_offset, y_offset))
-                    output_filename = f"{base_filename}_rot_{i:04d}{ext}"
+                    output_filename = f"{base_filename}_{i:04d}{ext}"
                     output_path = os.path.join(output_dir, output_filename)
                     background.save(output_path)
                     total_generated_count += 1
