@@ -106,11 +106,11 @@ def apply_sobel(image_tensor):
     return mag
 
 def apply_canny(image_tensor_np):
-    img_uint8 = (image_tensor_np * 255).astype(np.uint8)
+    img_uint8 = tf.cast(image_tensor_np * 255, dtype = tf.uint8)
     gray_uint8 = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY)
     canny_edge = cv2.Canny(gray_uint8, 100, 200)
     canny_edge = canny_edge.astype(np.float32) / 255.0
-    return np.expand_dims(canny_edge, axis=-1)
+    return np.expand_dims(canny_edge, axis = -1)
 
 def build_feature(path, label):
     img = decode_image(path) # 이미지(JPG)를 읽고 (1500, 1500, 3) tensor로 변환 (uint8)
@@ -127,7 +127,7 @@ def build_feature(path, label):
             func = apply_canny,
             inp = [x01],
             Tout = tf.float32)
-        canny_ch.set_shape(img_size[0], img_size[1], 1])
+        canny_ch.set_shape((img_size[0], img_size[1], 1))
         feats.append(canny_ch)
 
     # RGB(3) + Sobel(1) + Canny(1) = 5 Channels
@@ -274,7 +274,7 @@ model.compile(
 )
 
 work_dir = data_root
-ckpt_path = os.path.join(work_dir, f"Model_{CHOSEN_BACKBONE}_best.keras")
+ckpt_path = os.path.join(work_dir, f"Model_{BACKBONE}_best.keras")
 
 callbacks = [
     ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
