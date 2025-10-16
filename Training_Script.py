@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import cv2
+from PIL import Image, ImageOps
 from tensorflow.keras import layers, models
 from tensorflow.keras.applications import VGG16, ResNet50V2, EfficientNetV2S
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
@@ -75,12 +76,13 @@ print(f"Train : {len(train_list)} Val : {len(val_list)}")
 print("Class_Indices : ", {cls_esd : 0, cls_ok : 1})
 
 # ========== Preprocessing (TF Calculation) ==========
-def decode_image(path):
-    img = tf.io.read_file(path)
-    img = tf.io.decode_jpeg(img, channels = 3) # JPG -> (1500, 1500, 3) tensor(uint8)
-    img = tf.image.convert_image_dtype(img, tf.float32) # (1500, 1500, 3) (float32)
-    return img
-    # (1500, 1500, 3) tensor (float32)
+def decode_and_orient(path):
+    # ty.py_function은 Tensor를 전달하므로, numpy()로 일반 문자열로 변환
+    path_str = path.numpy().decode("utf-8")
+    with Image.open(path_str) as img:
+        img = ImageOps.exif_transpose(img) # EXIF 정보를 읽고 이미지를 정방향으로 회전
+        img_np = np.array(img) # 다시 Tensorflow에서 처리할 수 있게끔 NumPy 배열로 변환
+    return img_np
 
 def crop_roi(img):
     h, w = tf.shape(img)[0], tf.shape(img)[1] # h : 1500, w : 1500
@@ -114,7 +116,13 @@ def apply_canny(image_tensor_np):
     return np.expand_dims(canny_edge, axis = -1)
 
 def build_feature(path, label):
-    img = decode_image(path) # 이미지(JPG)를 읽고 (1500, 1500, 3) tensor로 변환 (uint8)
+    # 이미지(JPG)를 읽고 (1500, 1500, 3) tensor로 변환 (uint8)
+    img_tensor = tf.py_function(decode_and_orient, [path], tf.uint8)
+    img_tensor.set_shape([None, None, 3])
+    
+    # NumPy 배열(uint8)을 Tensor(float32)로 변환
+    img = tf.image.convert_image_dtype(img_tensor, tf.float32)
+    
     x01 = crop_roi(img) # ROI 설정에 따라 tensor를 잘라냄 (256, 256, 3) (float32)
 
     feats = [x01]
