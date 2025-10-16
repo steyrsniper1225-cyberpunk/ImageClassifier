@@ -77,35 +77,38 @@ print("Class_Indices : ", {cls_esd : 0, cls_ok : 1})
 
 # ========== Preprocessing (TF Calculation) ==========
 def decode_and_orient(path):
-    # ty.py_function은 Tensor를 전달하므로, numpy()로 일반 문자열로 변환
+    # tf.py_function은 Tensor를 전달하므로, numpy()로 일반 문자열로 변환
     path_str = path.numpy().decode("utf-8")
     with Image.open(path_str) as img:
         img = ImageOps.exif_transpose(img) # EXIF 정보를 읽고 이미지를 정방향으로 회전
         img_np = np.array(img) # 다시 Tensorflow에서 처리할 수 있게끔 NumPy 배열로 변환
     return img_np
+    # np.array(height, width, 3) uint8 [0~255]
 
-def crop_roi(img):
-    h, w = tf.shape(img)[0], tf.shape(img)[1] # h : 1500, w : 1500
+def crop_roi(img): # tf.py_function(decode_and_orient)에서 만든 Tensor(H, W, 3) float32 [0, 1]이 입력됨
+    h, w = tf.shape(img)[0], tf.shape(img)[1]
+    # tf.clip_by_value(value, min, max)
     x0 = tf.clip_by_value(ROI_X - PAD, 0, w) # (570 - 28, 0, 1500)
     y0 = tf.clip_by_value(ROI_Y - PAD, 0, h) # (670 - 28, 0, 1500)
     x1 = tf.clip_by_value(ROI_X + ROI_W + PAD, 0, w) # (570 + 200 + 28, 0, 1500)
     y1 = tf.clip_by_value(ROI_Y + ROI_H + PAD, 0, h) # (670 + 200 + 28, 0, 1500)
     roi = img[y0:y1, x0:x1] # img[642:898, 542:798] -> (256, 256, 3) cropped
     return roi
-    # (256, 256, 3) tensor (float32) pixel : 0~255
+    # Tensor(256, 256, 3) float32 [0, 1]
 
 def apply_sobel(image_tensor):
     """0~1 범위의 RGB Tensor -> 0~1 범위의 Sobel magnitude Tensor"""
-    gray = tf.image.rgb_to_grayscale(image_tensor) # Sobel은 Grayscale image에 적용
+    gray = tf.image.rgb_to_grayscale(image_tensor) # Sobel은 Grayscale image에 적용, Tensor(256, 256, 1) float32 [0, 1]
     gray_4d = tf.expand_dims(gray, axis = 0)
-    sob = tf.image.sobel_edges(gray_4d) # (1, 256, 256, 1, 2)
-    sob = tf.squeeze(sob, axis = 0) # (256, 256, 1, 2)
+    sob = tf.image.sobel_edges(gray_4d)
+    sob = tf.squeeze(sob, axis = 0)
     gx, gy = sob[..., 0], sob[..., 1]
-    mag = tf.sqrt(gx * gx + gy * gy) # (256, 256, 1)
+    mag = tf.sqrt(gx * gx + gy * gy)
     mag_min = tf.reduce_min(mag)
     mag_max = tf.reduce_max(mag)
     mag = (mag - mag_min) / (mag_max - mag_min + 1e-6)
     return mag
+    # Tensor(256, 256, 1) float32 [0, 1]
 
 def apply_canny(image_tensor_np):
     image_tensor_np = image_tensor_np.numpy()
@@ -114,18 +117,18 @@ def apply_canny(image_tensor_np):
     canny_edge = cv2.Canny(gray_uint8, 100, 200)
     canny_edge = canny_edge.astype(np.float32) / 255.0
     return np.expand_dims(canny_edge, axis = -1)
+    # Tensor(256, 256, 1) float32 [0, 1]
 
 def build_feature(path, label):
-    # 이미지(JPG)를 읽고 (1500, 1500, 3) tensor로 변환 (uint8)
-    img_tensor = tf.py_function(decode_and_orient, [path], tf.uint8)
-    img_tensor.set_shape([None, None, 3])
+    img_tensor = tf.py_function(decode_and_orient, [path], tf.uint8) # Tensor(H, W, 3) uint8 [0~255]
+    img_tensor.set_shape([None, None, 3]) # shape 재설정
     
-    # NumPy 배열(uint8)을 Tensor(float32)로 변환
-    img = tf.image.convert_image_dtype(img_tensor, tf.float32)
+    # uint8 [0~255]를 정규화된 float32 [0, 1]로 변환
+    img = tf.image.convert_image_dtype(img_tensor, tf.float32) # Tensor(H, W, 3) float32 [0, 1]
     
-    x01 = crop_roi(img) # ROI 설정에 따라 tensor를 잘라냄 (256, 256, 3) (float32)
+    x01 = crop_roi(img) # ROI 적용, Tensor(256, 256, 3) float32 [0, 1]
 
-    feats = [x01]
+    feats = [x01] # Tensor(256, 256, 3) float32 [0, 1]
 
     if ADD_SOBEL:
         sobel_ch = apply_sobel(x01)
@@ -141,10 +144,11 @@ def build_feature(path, label):
 
     # RGB(3) + Sobel(1) + Canny(1) = 5 Channels
     feat = tf.concat(feats, axis = -1)
+    # Tensor(256, 256, 5) float32 [0, 1]
 
     return feat, tf.cast(label, tf.float32)
-    # feat : (256, 256, 5) (float32) 0 ~ 1 사이의 값들
-    # label : () float32 0 or 1의 값들
+    # feat : Tensor(256, 256, 5) float32 [0, 1]
+    # label : Scalar() float32 [0 or 1]
 
 def make_ds(pairs, batch = BATCH, shuffle = True):
     paths = [p for p,_ in pairs] # (filepath, label)에서 filepath(...JPG)
@@ -158,25 +162,28 @@ def make_ds(pairs, batch = BATCH, shuffle = True):
         ds = ds.shuffle(len(pairs), seed = SEED, reshuffle_each_iteration = True)
 
     ds = ds.map(build_feature, num_parallel_calls = AUTOTUNE)
-    # [ feat : (256, 256, 4)(tensor), label : ()(scalar, 0.0 or 1.0의 값임) ]
+    # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
 
     def augmentation(x, y):
-        # x : (256, 256, 5) Tensor 전체에 Augmentation 적용
+        # x : Tensor(256, 256, 5) float32 [0, 1] 전체에 Augmentation 적용. 단, train_ds만 적용함.
         x = tf.image.random_flip_left_right(x)
         x = tf.image.random_brightness(x, max_delta = 0.05)
         x = tf.image.random_contrast(x, 0.9, 1.1)
         k = tf.random.uniform(shape = [], minval = 0, maxval = 4, dtype = tf.int32)
         x = tf.image.rot90(x, k = k)
         return x, y
+        # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
 
     if shuffle:
         ds = ds.map(augmentation, num_parallel_calls = AUTOTUNE)
+        # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
 
     ds = ds.batch(batch).prefetch(AUTOTUNE)
-    # x(feat) : (20, 256, 256, 5) -> train은 shuffle=True라서 aug도 진행
-    # y(label) : (20, )              val은 shuffle=False라서 aug를 skip
+    # x(feat) : Tensor(16, 256, 256, 5) float32 [0, 1] -> train은 shuffle=True라서 aug도 진행
+    # y(label) : Scalar(20, ) float32 [0 or 1]              val은 shuffle=False라서 aug를 skip
 
     return ds
+    # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
 
 def history_to_df(history):
     df = pd.DataFrame(history.history)
@@ -184,7 +191,9 @@ def history_to_df(history):
     return df
 
 train_ds = make_ds(train_list, shuffle = True)
+# (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
 val_ds = make_ds(val_list, shuffle = False)
+# (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
 
 # ========== Class weight ==========
 # Label : ESD(0), OK(1)
