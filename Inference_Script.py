@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 다중 채널(5→3) 이진분류 모델(.keras) 추론 스크립트
 - 학습 파이프라인과 동일한 전처리로 (256,256,5) 텐서 생성
@@ -18,6 +15,7 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras import layers
 import cv2
+from PIL import Image, ImageOps
 
 # -----------------------------
 # 전역 파라미터 (학습과 동일)
@@ -62,11 +60,14 @@ class PreprocessingLayer(layers.Layer):
 # 전처리 함수들 (학습과 동일)
 # -----------------------------
 def decode_image_tf(path_str: str) -> tf.Tensor:
-    """bytes -> RGB float32 [0,1], (H,W,3)"""
-    b = tf.io.read_file(path_str)
-    img = tf.io.decode_jpeg(b, channels = 3)
-    img = tf.image.convert_image_dtype(img, tf.float32)
-    return img
+    with Image.open(path_str) as img:
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGB")
+        img_np = np.array(img)
+        
+    img_tensor = tf.convert_to_tensor(img_np)
+    img_tensor = tf.image.convert_image_dtype(img_tensor, tf.float32)
+    return img_tensor # (H, W, 3) float32 [0, 1]
 
 def crop_roi_tf(img: tf.Tensor) -> tf.Tensor:
     """ROI(+PAD) 크롭, float32 [0,1]"""
