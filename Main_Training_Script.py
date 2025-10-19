@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import os , random, datetime
 import pandas as pd
 import numpy as np
@@ -26,11 +23,6 @@ SEED = 42
 EPOCHS_STAGE1 = 10
 EPOCHS_STAGE2 = 10
 
-# ========== Set ROI ==========
-ROI_X, ROI_Y = 570, 670
-ROI_W, ROI_H = 200, 200
-PAD = 28
-
 ADD_SOBEL = True
 ADD_CANNY = True
 
@@ -38,12 +30,6 @@ AUTOTUNE = tf.data.AUTOTUNE
 tf.random.set_seed(SEED)
 random.seed(SEED)
 np.random.seed(SEED)
-
-# 원본 : (1500, 1500, 3)
-# ROI crop : (200, 200, 3) // 좌측 상단 (0, 0) 기준으로 (570, 670)을 crop의 좌상단으로 잡음
-# padding(+28) : (256, 256, 3)
-# 최종 채널 구성 : RGB(3) + Sobel(1) + Canny(1) = 5 Channels
-# Batch : (16, 256, 256, 5)
 
 # ========== File List & Train/Val Split ==========
 def list_labeled_files(root):
@@ -85,17 +71,6 @@ def decode_and_orient(path):
     return img_np
     # np.array(height, width, 3) uint8 [0~255]
 
-def crop_roi(img): # tf.py_function(decode_and_orient)에서 만든 Tensor(H, W, 3) float32 [0, 1]이 입력됨
-    h, w = tf.shape(img)[0], tf.shape(img)[1]
-    # tf.clip_by_value(value, min, max)
-    x0 = tf.clip_by_value(ROI_X - PAD, 0, w) # (570 - 28, 0, 1500)
-    y0 = tf.clip_by_value(ROI_Y - PAD, 0, h) # (670 - 28, 0, 1500)
-    x1 = tf.clip_by_value(ROI_X + ROI_W + PAD, 0, w) # (570 + 200 + 28, 0, 1500)
-    y1 = tf.clip_by_value(ROI_Y + ROI_H + PAD, 0, h) # (670 + 200 + 28, 0, 1500)
-    roi = img[y0:y1, x0:x1] # img[642:898, 542:798] -> (256, 256, 3) cropped
-    return roi
-    # Tensor(256, 256, 3) float32 [0, 1]
-
 def apply_sobel(image_tensor):
     """0~1 범위의 RGB Tensor -> 0~1 범위의 Sobel magnitude Tensor"""
     gray = tf.image.rgb_to_grayscale(image_tensor) # Sobel은 Grayscale image에 적용, Tensor(256, 256, 1) float32 [0, 1]
@@ -125,8 +100,8 @@ def build_feature(path, label):
     
     # uint8 [0~255]를 정규화된 float32 [0, 1]로 변환
     img = tf.image.convert_image_dtype(img_tensor, tf.float32) # Tensor(H, W, 3) float32 [0, 1]
-    
-    x01 = crop_roi(img) # ROI 적용, Tensor(256, 256, 3) float32 [0, 1]
+    x01 = tf.image.resize(img, img_size, method = "bilinear") # resize
+    x01.set_shape((img_size[0], img_size[1], 3)) # (256, 256, 3) reminder
 
     feats = [x01] # Tensor(256, 256, 3) float32 [0, 1]
 
@@ -166,7 +141,6 @@ def make_ds(pairs, batch = BATCH, shuffle = True):
 
     def augmentation(x, y):
         # x : Tensor(256, 256, 5) float32 [0, 1] 전체에 Augmentation 적용. 단, train_ds만 적용함.
-        x = tf.image.random_flip_left_right(x)
         x = tf.image.random_brightness(x, max_delta = 0.05)
         x = tf.image.random_contrast(x, 0.9, 1.1)
         k = tf.random.uniform(shape = [], minval = 0, maxval = 4, dtype = tf.int32)
@@ -217,18 +191,13 @@ class PreprocessingLayer(layers.Layer):
         elif backbone_name == 'ResNet50V2':
             self.preprocess_fn = tf.keras.applications.resnet_v2.preprocess_input
         elif backbone_name == 'EfficientNetV2S':
-            # EfficientNetV2S는 [0, 1] 스케일을 그대로 사용하므로 함수가 다름
             self.preprocess_fn = tf.keras.applications.efficientnet_v2.preprocess_input
         else:
             raise ValueError("Unsupported backbone name")
 
     def call(self, inputs):
-        # EfficientNetV2S를 제외하고는 [0, 255] 스케일로 변환 후 전처리
-        if self.backbone_name in ['VGG16', 'ResNet50V2']:
-            scaled_inputs = inputs * 255.0
-            return self.preprocess_fn(scaled_inputs)
-        else: # EfficientNetV2S
-            return self.preprocess_fn(inputs)
+        scaled_inputs = inputs * 255.0
+        return self.preprocess_fn(scaled_inputs)
 
     # get_config는 모델 저장/로드를 위해 필수
     def get_config(self):
@@ -237,8 +206,8 @@ class PreprocessingLayer(layers.Layer):
         return config
 
 # ========== Channel Mapper (N -> 3), Backbone ==========
-sample_x, _ = next(iter(train_ds.take(1))) # train_ds의 원소는 (20, 256, 256, 5)
-in_ch = int(sample_x.shape[-1]) # input_channel : 5
+sample_x, _ = next(iter(train_ds.take(1)))
+in_ch = int(sample_x.shape[-1])
 print("Input channels : ", in_ch)
 
 def build_model(backbone_name="VGG16"):
@@ -246,16 +215,15 @@ def build_model(backbone_name="VGG16"):
 
     # Channel Mapper: N channels -> 3 channels
     x = layers.Conv2D(16, 1, padding="same", activation="relu", name="ch_mapper_16")(inp)
-    x = layers.Conv2D(3, 1, padding="same", activation=None, name="ch_mapper_3")(x) # (256, 256, 3), [0, 1] 범위
+    x = layers.Conv2D(3, 1, padding="same", activation=None, name="ch_mapper_3")(x)
     preproc_layer = PreprocessingLayer(backbone_name, name = f"{backbone_name.lower()}_preproc")
 
     # Backbone별 전용 전처리 레이어를 모델 내부에 적용
-    # 이로써 모델 외부 데이터는 항상 [0, 1]로 유지 가능
     if backbone_name == "VGG16":
         base = VGG16(weights="imagenet", include_top=False, input_shape=(img_size[0], img_size[1], 3))
     elif backbone_name == "ResNet50V2":
         base = ResNet50V2(weights="imagenet", include_top=False, input_shape=(img_size[0], img_size[1], 3))
-    elif backbone_name == "EfficientNetV2S": # EfficientNetV2는 [0, 255] 스케일링이 필요 없음
+    elif backbone_name == "EfficientNetV2S":
         base = EfficientNetV2S(weights="imagenet", include_top=False, input_shape=(img_size[0], img_size[1], 3))
         
     x = preproc_layer(x)
@@ -275,10 +243,6 @@ def build_model(backbone_name="VGG16"):
 BACKBONE = "VGG16"
 model, base_model = build_model(BACKBONE)
 # model.summary() -> Summary 확인 필요 시 주석 해제
-# Input : (256, 256, 5)
-# Channel Mapper : 5 -> 3
-# Backbone : (256, 256, 3) -> feature maps
-# Custom Head : 0 ~ 1 classification
 
 
 # ========== Stage 1: Fine-tuning Head ==========
@@ -308,3 +272,65 @@ history1 = model.fit(
     class_weight=class_weight,
     callbacks=callbacks
 )
+
+# ========== Stage 2: Fine-tuning Backbone ==========
+print("\n--- Stage 2: Fine-tuning Backbone ---")
+
+# Backbone 모델의 동결 해제
+base_model.trainable = True
+
+# (참고) ResNet/EfficientNet 등 BatchNormalization 레이어가 있는 모델은
+# BN 레이어는 계속 동결하는 것이 안정적일 수 있습니다. (VGG16은 해당 없음)
+if BACKBONE != "VGG16":
+    for layer in base_model.layers:
+        if isinstance(layer, layers.BatchNormalization):
+            layer.trainable = False
+
+# 미세 조정을 위해 더 낮은 학습률로 모델을 다시 컴파일
+model.compile(
+    optimizer=Adam(1e-5), # Stage 1 (1e-3) 보다 훨씬 낮은 학습률 사용
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+
+# Stage 2용 콜백 (필요시 EarlyStopping patience 등을 조절할 수 있음)
+callbacks_stage2 = [
+    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
+    EarlyStopping(monitor="val_accuracy", patience=5, mode="max", restore_best_weights=True),
+    ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-7) # min_lr을 더 낮출 수 있음
+]
+
+# Stage 2 학습 실행
+history2 = model.fit(
+    train_ds,
+    epochs=EPOCHS_STAGE1 + EPOCHS_STAGE2, # 총 Epoch 횟수
+    initial_epoch=EPOCHS_STAGE1,       # Stage 1이 끝난 시점부터 시작
+    validation_data=val_ds,
+    class_weight=class_weight,
+    callbacks=callbacks_stage2
+)
+
+
+'''
+# ========== Save History and Final Model ==========
+
+# Stage 1과 Stage 2의 history DataFrame 결합
+df_hist1 = history_to_df(history1)
+df_hist2 = history_to_df(history2)
+df_hist = pd.concat([df_hist1, df_hist2], ignore_index=True)
+
+# 학습 로그(CSV) 저장
+save_dir = data_root
+os.makedirs(save_dir, exist_ok=True)
+ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+csv_path = os.path.join(save_dir, f"training_log_{BACKBONE}_{ts}.csv")
+
+df_hist.to_csv(csv_path, index=False, encoding="utf-8-sig")
+print(f"\nSaved Training Log: {csv_path}")
+df_hist.head()
+
+# 최종 모델 저장
+final_path = os.path.join(work_dir, f"Model_{BACKBONE}_final.keras")
+model.save(final_path)
+print(f"Final Model Saved: {final_path}")
+'''
