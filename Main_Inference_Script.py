@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 다채널(5ch) 이진분류 모델(.keras/.h5) 추론 스크립트
 - (추가) 자동 ROI 탐색 (Template Matching, 4-Angle) 및 256x256 크롭
@@ -19,8 +16,8 @@ import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras import layers
-import cv2  # (추가)
-from PIL import Image, ImageOps # (추가)
+import cv2
+from PIL import Image, ImageOps
 
 # -----------------------------
 # 전역 파라미터 (학습과 동일)
