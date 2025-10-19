@@ -196,12 +196,12 @@ for filename in all_files:
         elif best_angle == 90:
             # 90도(CW)로 매칭됨 -> 0도로 돌리기 위해 -90도(CCW) 회전
             # PIL.Image.rotate(90)은 CCW이므로 -90 또는 270을 사용
-            final_cropped_pil_img = cropped_pil_img.rotate(-90, expand=True) 
+            final_cropped_pil_img = cropped_pil_img.rotate(90, expand=True) 
         elif best_angle == 180:
             final_cropped_pil_img = cropped_pil_img.rotate(180, expand=True)
         elif best_angle == 270:
             # 270도(CCW)로 매칭됨 -> 0도로 돌리기 위해 +90도(CW) 회전
-            final_cropped_pil_img = cropped_pil_img.rotate(90, expand=True)
+            final_cropped_pil_img = cropped_pil_img.rotate(270, expand=True)
 
         # 2-3. 새 파일명으로 저장
         save_filename = os.path.splitext(filename)[0] + "_cropped.jpg"
