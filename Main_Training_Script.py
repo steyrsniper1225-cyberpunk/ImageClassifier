@@ -86,8 +86,7 @@ def apply_sobel(image_tensor):
     # Tensor(256, 256, 1) float32 [0, 1]
 
 def apply_canny(image_tensor_np):
-    image_tensor_np = image_tensor_np.numpy()
-    img_uint8 = tf.cast(image_tensor_np * 255, dtype = tf.uint8).numpy()
+    img_uint8 = (image_tensor_np * 255).astype(np.uint8)
     gray_uint8 = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY)
     canny_edge = cv2.Canny(gray_uint8, 100, 200)
     canny_edge = canny_edge.astype(np.float32) / 255.0
