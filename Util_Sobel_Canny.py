@@ -22,16 +22,16 @@ def apply_sobel(image_tensor):
     return mag
     # Tensor(256, 256, 1) float32 [0, 1]
 
-def apply_canny(image_tensor_np):
+def apply_canny(image_tensor):
     """0~1 범위의 RGB Tensor -> 0~1 범위의 Canny edge Numpy Array"""
-    # 입력 'image_tensor_np'는 사실상 [0,1] 범위의 float32 RGB 텐서입니다.
-    image_tensor_np = image_tensor_np.numpy() 
-    img_uint8 = tf.cast(image_tensor_np * 255, dtype = tf.uint8).numpy()
-    gray_uint8 = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY)
-    canny_edge = cv2.Canny(gray_uint8, 100, 200) # (H, W) uint8
-    canny_edge = canny_edge.astype(np.float32) / 255.0 # (H, W) float32
+    # 입력 'image_tensor'는 [0,1] 범위의 float32 RGB 텐서입니다.
+    image_tensor = image_tensor.numpy() # NumPy(256, 256, 3) float32 [0, 1]
+    img_uint8 = image_tensor.astype(uint8) # NumPy(256, 256, 3) uint8 [0, 255]
+    gray_uint8 = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY) # NumPy(256, 256, 3) uint8 [0, 255]
+    canny_edge = cv2.Canny(gray_uint8, 100, 200) # NumPy(256, 256, 1) uint8 [0, 255]
+    canny_edge = canny_edge.astype(np.float32) / 255.0 # NumPy(256, 256, 1) float32 [0, 1]
     return np.expand_dims(canny_edge, axis = -1)
-    # Array(H, W, 1) float32 [0, 1]
+    # NumPy(256, 256, 1) float32 [0, 1]
 
 # -----------------------------------------------------------------
 # 메인 실행 스크립트
@@ -67,18 +67,18 @@ def process_and_save_images(base_dir, save_dir):
             # decode_image가 JPG, PNG 등을 자동 감지 (channels=3로 RGB 보장)
             img_uint8 = tf.io.decode_image(img_bytes, channels=3)
             # 함수 입력에 맞게 [0, 1] float32 텐서로 변환
-            img_tensor_01 = tf.image.convert_image_dtype(img_uint8, tf.float32)
+            img_tensor_01 = tf.image.convert_image_dtype(img_uint8, tf.float32) # Tensor(256, 256, 3) float32 [0, 1]
 
             # --- 1. Sobel 적용 및 변환 ---
-            sobel_result_01 = apply_sobel(img_tensor_01) # (H, W, 1) float32 [0, 1]
+            sobel_result_01 = apply_sobel(img_tensor_01) # Tensor(256, 256, 1) float32 [0, 1]
             # 저장을 위해 [0, 255] uint8 텐서로 변환
-            sobel_img_uint8 = tf.image.convert_image_dtype(sobel_result_01, tf.uint8)
+            sobel_img_uint8 = tf.image.convert_image_dtype(sobel_result_01, tf.uint8) # Tensor(256, 256, 1) uint8 [0, 255]
 
             # --- 2. Canny 적용 및 변환 ---
-            canny_result_01_np = apply_canny(img_tensor_01) # (H, W, 1) float32 [0, 1] (Numpy)
+            canny_result_01 = apply_canny(img_tensor_01) # Numpy(256, 256, 1) float32 [0, 1]
             # 저장을 위해 [0, 255] uint8 텐서로 변환
-            canny_img_uint8 = (canny_result_01_np * 255.0).astype(np.uint8)
-            canny_img_uint8_tensor = tf.convert_to_tensor(canny_img_uint8)
+            canny_img_uint8 = (canny_result_01 * 255.0).astype(np.uint8) # NumPy(256, 256, 1) uint8 [0, 255]
+            canny_img_uint8 = tf.convert_to_tensor(canny_img_uint8) # Tensor(256, 256, 1) uint8 [0, 255]
 
             # --- 3. 파일 저장 ---
             file_stem = img_file.stem  # 파일명 (확장자 제외)
@@ -90,7 +90,7 @@ def process_and_save_images(base_dir, save_dir):
 
             # Canny 결과 저장
             canny_filename = save_path / f"{file_stem}_canny.jpg"
-            canny_jpeg_bytes = tf.io.encode_jpeg(canny_img_uint8_tensor, quality=95)
+            canny_jpeg_bytes = tf.io.encode_jpeg(canny_img_uint8, quality=95)
             tf.io.write_file(str(canny_filename), canny_jpeg_bytes)
 
             # print(f"처리 완료: {img_file.name}")
