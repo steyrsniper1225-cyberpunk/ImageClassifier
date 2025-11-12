@@ -264,7 +264,7 @@ def parse_filename(filename):
         part1, part2, part3 = parts[0], parts[1], parts[2]
         p1_split = part1.split('_'); p2_split = part2.split('_'); p3_split = part3.split('_')
         if len(p1_split) < 5: raise ValueError("Part 1 _ 부족")
-        if len(p2_split) < 3: raise ValueError("Part 2 _ 부족")
+        if len(p2_split) < 1: raise ValueError("Part 2 _ 부족")
         metadata = {
             "LOT_ID": p1_split[0], "GLS_ID": p1_split[1], "PNL_ID": p1_split[2],
             "EQUIPMENT_ID": p1_split[3], "PROCESS_CODE": int(p1_split[4]),
