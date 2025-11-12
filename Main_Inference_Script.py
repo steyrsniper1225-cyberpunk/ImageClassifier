@@ -261,15 +261,15 @@ def parse_filename(filename):
         base_name = os.path.splitext(filename)[0]
         parts = base_name.split('___')
         if len(parts) < 2: raise ValueError("___ 구분자 없음")
-        part1, part2 = parts[0], parts[1]
-        p1_split = part1.split('_'); p2_split = part2.split('_')
+        part1, part2, part3 = parts[0], parts[1], parts[2]
+        p1_split = part1.split('_'); p2_split = part2.split('_'); p3_split = part3.split('_')
         if len(p1_split) < 5: raise ValueError("Part 1 _ 부족")
         if len(p2_split) < 3: raise ValueError("Part 2 _ 부족")
         metadata = {
             "LOT_ID": p1_split[0], "GLS_ID": p1_split[1], "PNL_ID": p1_split[2],
             "EQUIPMENT_ID": p1_split[3], "PROCESS_CODE": int(p1_split[4]),
             "DEF_PNT_X": float(p2_split[0]), "DEF_PNT_Y": float(p2_split[1]),
-            "SEQ": int(p2_split[2])
+            "SEQ": int(p3_split[0])
         }
         return metadata
     except Exception as e:
