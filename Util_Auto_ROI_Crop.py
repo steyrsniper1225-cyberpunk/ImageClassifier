@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pandas as pd
 from PIL import Image, ImageOps
+from tqdm import tqdm # [수정] tqdm 라이브러리 import
 
 # --- 0. 경로 및 기본 파라미터 설정 ---
 base_dir = r"C:\Users\LGPC\Desktop\ROI_Algo"
@@ -27,17 +28,20 @@ def find_best_rotated_template_match(img_input_gray, tpl_base_gray):
     best_top_left = None
     best_angle = None
 
-    print("  템플릿 매칭 시작 (4개 각도 비교 중)...")
+    # [수정] tqdm 진행률 표시줄이 깨지지 않도록 내부 print문 주석 처리
+    # print(" 템플릿 매칭 시작 (4개 각도 비교 중)...")
 
     for tpl, angle in templates:
         # (중요) tpl(256x256)이 img_input_gray(탐색영역)보다 크면 에러 발생
         if tpl.shape[0] > img_input_gray.shape[0] or tpl.shape[1] > img_input_gray.shape[1]:
-            print(f"    ... {angle}도: 템플릿(w:{tpl.shape[1]})이 탐색영역(w:{img_input_gray.shape[1]})보다 커서 스킵")
+            # [수정] tqdm 진행률 표시줄이 깨지지 않도록 내부 print문 주석 처리
+            # print(f" ... {angle}도: 템플릿(w:{tpl.shape[1]})이 탐색영역(w:{img_input_gray.shape[1]})보다 커서 스킵")
             continue
             
         res = cv2.matchTemplate(img_input_gray, tpl, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        print(f"    ... {angle}도 매칭 점수: {max_val:.4f} at {max_loc}")
+        # [수정] tqdm 진행률 표시줄이 깨지지 않도록 내부 print문 주석 처리
+        # print(f" ... {angle}도 매칭 점수: {max_val:.4f} at {max_loc}")
         if max_val > best_score:
             best_score = max_val
             best_top_left = max_loc
@@ -66,19 +70,29 @@ try:
 except FileNotFoundError:
     print(f"오류: base_dir를 찾을 수 없습니다: {base_dir}")
     exit()
-    
+
 print(f"\n--- {base_dir} 경로에서 이미지 스캔 시작 ---")
 
-# --- 2. base_dir의 모든 이미지 파일에 대해 매칭 수행 ---
+# --- [수정] 2-1. tqdm을 사용하기 위해 실제 처리할 이미지 파일 목록을 먼저 생성 ---
+image_files_to_process = []
 for filename in all_files:
     input_image_path = os.path.join(base_dir, filename)
+    if os.path.isfile(input_image_path) and filename.lower().endswith(valid_exts):
+        image_files_to_process.append(filename)
 
-    if not os.path.isfile(input_image_path) or not filename.lower().endswith(valid_exts):
-        continue
+print(f"총 {len(image_files_to_process)}개의 유효한 이미지 파일을 찾았습니다.")
 
-    print(f"\n=======================================================")
-    print(f"파일 처리 중: {filename}")
-    print(f"=======================================================")
+
+# --- [수정] 2-2. 필터링된 이미지 목록을 tqdm으로 감싸서 처리 ---
+for filename in tqdm(image_files_to_process, desc="이미지 Crop 진행 중"):
+    input_image_path = os.path.join(base_dir, filename)
+
+    # [수정] 파일 유효성 검사 코드는 이미 위에서 처리했으므로 루프 내에서 제거됨
+    
+    # [수정] tqdm 진행률 표시줄이 깨지지 않도록 상세 로그 주석 처리
+    # print(f"\n=======================================================")
+    # print(f"파일 처리 중: {filename}")
+    # print(f"=======================================================")
 
     # ... (for 루프 시작) ...
 
@@ -98,14 +112,17 @@ for filename in all_files:
         img_input_gray = cv2.cvtColor(img_input_color, cv2.COLOR_BGR2GRAY)
 
     except Exception as e:
-        print(f"  오류: {filename}을(를) 읽는 중 오류 발생: {e}. 건너뜁니다.")
+        # 오류 로그는 tqdm 진행률 표시줄을 깨뜨릴 수 있으나,
+        # 어떤 파일에서 오류가 났는지 확인해야 하므로 유지합니다.
+        # tqdm.write()를 사용하면 더 깔끔하게 오류를 출력할 수 있습니다.
+        tqdm.write(f" [오류] {filename} 처리 중 오류: {e}. 건너뜁니다.")
         continue
 
     # 4. (추가) 탐색 영역(Search Region) 정의
     # 힌트와 Shift, 템플릿 크기를 모두 고려하여 탐색 영역을 계산합니다.
     HINT_X_MIN, HINT_X_MAX = 20, 1224
     HINT_Y_MIN, HINT_Y_MAX = 20, 1224
-    MAX_SHIFT = 20  # 최대 20픽셀 Shift
+    MAX_SHIFT = 20 # 최대 20픽셀 Shift
     
     # X축 (가로): 힌트 최소값(20) - 최대 Shift(20) = 0
     x_min = HINT_X_MIN - MAX_SHIFT
@@ -124,8 +141,9 @@ for filename in all_files:
     y_max = min(h_img, y_max)
     x_max = min(w_img, x_max)
 
-    print(f"  전체 이미지 크기: (h:{h_img}, w:{w_img})")
-    print(f"  탐색 영역 (y, x): ({y_min}:{y_max}), ({x_min}:{x_max})")
+    # [수정] tqdm 진행률 표시줄이 깨지지 않도록 상세 로그 주석 처리
+    # print(f"  전체 이미지 크기: (h:{h_img}, w:{w_img})")
+    # print(f"  탐색 영역 (y, x): ({y_min}:{y_max}), ({x_min}:{x_max})")
     
     # 4-1. (수정) 탐색 영역으로 그레이스케일 이미지 자르기
     search_region_gray = img_input_gray[y_min:y_max, x_min:x_max]
@@ -137,7 +155,7 @@ for filename in all_files:
     )
 
     if best_top_left_relative is None:
-        print(f"  {filename}에서 매칭에 실패했습니다. (탐색 영역이 템플릿보다 작을 수 있음)")
+        tqdm.write(f" [경고] {filename}에서 매칭에 실패했습니다. (탐색 영역이 템플릿보다 작을 수 있음)")
         continue
         
     # 4-3. (추가) 반환된 '상대 좌표'를 원본 이미지의 '절대 좌표'로 변환
@@ -154,16 +172,17 @@ for filename in all_files:
     ROI_X_center = best_top_left[0] + tpl_w_half
     ROI_Y_center = best_top_left[1] + tpl_h_half
 
-    print("-" * 40)
-    print(f"  [{filename}] 최종 매칭 결과:")
-    print(f"    - 최적 각도: {best_angle} 도")
-    print(f"    - 최고 점수: {best_score:.4f}")
+    # [수정] tqdm 진행률 표시줄이 깨지지 않도록 상세 로그 주석 처리
+    # print("-" * 40)
+    # print(f"  [{filename}] 최종 매칭 결과:")
+    # print(f"    - 최적 각도: {best_angle} 도")
+    # print(f"    - 최고 점수: {best_score:.4f}")
     # (수정) 상대 좌표가 아닌 변환된 '절대 좌표'를 출력
-    print(f"    - 좌상단 (x, y): {best_top_left}")
-    print(f"\n    [계산된 ROI 중심 (ROI_X, ROI_Y)]")
-    print(f"    - ROI_X: {ROI_X_center}")
-    print(f"    - ROI_Y: {ROI_Y_center}")
-    print("-" * 40)
+    # print(f"    - 좌상단 (x, y): {best_top_left}")
+    # print(f"\n    [계산된 ROI 중심 (ROI_X, ROI_Y)]")
+    # print(f"    - ROI_X: {ROI_X_center}")
+    # print(f"    - ROI_Y: {ROI_Y_center}")
+    # print("-" * 40)
 
     # (요청사항 1) DataFrame을 위한 결과 저장
     results_list.append({
@@ -211,10 +230,11 @@ for filename in all_files:
         # 이렇게 저장하면 파일이 RGB 채널 순서를 유지합니다.
         final_cropped_pil_img.save(save_path, "JPEG")
 
-        print(f"  Crop된 이미지 저장 완료: {save_path}")
+        # [수정] tqdm 진행률 표시줄이 깨지지 않도록 상세 로그 주석 처리
+        # print(f"  Crop된 이미지 저장 완료: {save_path}")
 
     except Exception as e:
-        print(f"  [오류] Crop 또는 저장 중 문제 발생: {e}")
+        tqdm.write(f" [오류] {filename} Crop 또는 저장 중 문제 발생: {e}")
 
 
 # --- 3. (요청사항 1) 최종 결과를 Excel 파일로 저장 ---
