@@ -4,11 +4,11 @@ import pandas as pd
 import warnings
 import base64 
 import io
-import numpy as np # (추가) CV2/PIL 처리를 위해 import
-import cv2         # (추가) 템플릿 매칭/CV2 처리를 위해 import
-from PIL import Image, ImageOps # (추가) EXIF 처리 및 Crop을 위해 import
+import numpy as np # CV2/PIL 처리를 위해 import
+import cv2         # 템플릿 매칭/CV2 처리를 위해 import
+from PIL import Image, ImageOps # EXIF 처리 및 Crop을 위해 import
 
-# 1. TensorFlow 로그 레벨 설정 (가장 중요)
+# 1. TensorFlow 로그 레벨 설정
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 warnings.filterwarnings('ignore')
 
@@ -16,58 +16,62 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tqdm import tqdm
 
-# --- 1. 설정 (★수정: Crop 파라미터 추가) ---
+# --- 1. 설정 (★수정: Rule-based 파라미터 추가) ---
 BASE_PATH = r"D:\\"
 IMAGE_FOLDER = os.path.join(BASE_PATH, "EMG_IMAGE")
-THRESHOLD = 0.4
+THRESHOLD = 0.4 # 모델의 OK 판정 기준 (이 값 이상이면 OK)
 
-# (1단계에서 생성한 Base64 문자열을 여기에 붙여넣으세요)
-TEMPLATE_A_BASE64 = "none"
+# (Base64 문자열은 생략 - 기존과 동일하게 사용하세요)
+TEMPLATE_A_BASE64 = "none" 
 TEMPLATE_B_BASE64 = "none"
-# (예시 문자열입니다. 실제 변환된 문자열로 대체해야 합니다.)
 
 CONFIG = {
     "A": {
         "MODEL_NAME": "Test_Model_A.keras",
-        "IMG_SIZE": (256, 256), # (tpl_h, tpl_w)와 동일
+        "IMG_SIZE": (256, 256),
         "TEMPLATE_BASE64": TEMPLATE_A_BASE64,
         "CROP_PARAMS": {
-            "HINT_X_MIN": 20,
-            "HINT_X_MAX": 1224,
-            "HINT_Y_MIN": 20,
-            "HINT_Y_MAX": 1224,
-            "MAX_SHIFT": 20
+            "HINT_X_MIN": 20, "HINT_X_MAX": 1224,
+            "HINT_Y_MIN": 20, "HINT_Y_MAX": 1224, "MAX_SHIFT": 20
+        },
+        # (★추가) 선형 회귀 및 잔차 분석 설정
+        "RULE_PARAMS": {
+            "ROW_START": 65,    # Row 66 (0-based index)
+            "ROW_END": 70,      # Row 70 (End exclusive: 65,66,67,68,69 사용)
+            "CHANNEL": "Green", # "Red", "Green", "Blue" 중 선택
+            "RESIDUAL_THRESH": -10.0 # 잔차 최소값이 이보다 낮으면 불량(오목함)
         }
     },
     "B": {
         "MODEL_NAME": "Test_Model_B.keras",
-        "IMG_SIZE": (320, 320), # B공장은 템플릿/모델 크기가 다를 경우
+        "IMG_SIZE": (320, 320),
         "TEMPLATE_BASE64": TEMPLATE_B_BASE64,
          "CROP_PARAMS": {
-            "HINT_X_MIN": 30,
-            "HINT_X_MAX": 1300,
-            "HINT_Y_MIN": 30,
-            "HINT_Y_MAX": 1300,
-            "MAX_SHIFT": 25
+            "HINT_X_MIN": 30, "HINT_X_MAX": 1300,
+            "HINT_Y_MIN": 30, "HINT_Y_MAX": 1300, "MAX_SHIFT": 25
+        },
+        "RULE_PARAMS": {
+            "ROW_START": 65,
+            "ROW_END": 70,
+            "CHANNEL": "Green",
+            "RESIDUAL_THRESH": -10.0
         }
     }
 }
 
-# --- (★수정: 여기만 "A" 또는 "B"로 변경하여 사용) ---
+# --- (★수정: 사용할 공장 선택) ---
 CURRENT_FACTORY = "A"
-# ---------------------------------------------
 
-# --- 2. 전역 설정 변수 (main 함수에서 채워짐) ---
+# --- 2. 전역 설정 변수 ---
 MODEL_PATH = None
 IMG_SIZE = None
 CROP_PARAMS = None
-GLOBAL_TEMPLATE_CV2_GRAY = None # (★수정) CV2용 그레이스케일 템플릿
+RULE_PARAMS = None # (★추가)
+GLOBAL_TEMPLATE_CV2_GRAY = None
 TPL_H, TPL_W = 0, 0
 TPL_H_HALF, TPL_W_HALF = 0, 0
 
-# --- 3. 학습 시 사용한 TensorFlow 전처리 함수 ---
-# (Crop 이후에 텐서를 대상으로 실행될 함수들)
-
+# --- 3. TensorFlow 전처리 함수 (기존 동일) ---
 def per_image_std(x):
     return tf.image.per_image_standardization(x)
 
@@ -89,7 +93,47 @@ def darkness(x01):
     gray = tf.image.rgb_to_grayscale(x01)
     return 1.0 - gray
 
-# --- 4. 헬퍼 함수 (★수정: Crop 로직 전체 내장) ---
+# --- 4. 헬퍼 함수 (★추가: 잔차 분석 로직) ---
+
+def calculate_residual_score(img_pil, rule_config):
+    """
+    (★신규) 이미지의 특정 영역에 대해 선형 회귀 후 최소 잔차(Min Residual)를 계산
+    """
+    try:
+        # 1. Numpy 배열 변환 (RGB)
+        img_arr = np.array(img_pil) # (H, W, 3) RGB
+
+        # 2. 채널 선택
+        ch_map = {"Red": 0, "Green": 1, "Blue": 2}
+        ch_idx = ch_map.get(rule_config["CHANNEL"], 1) # 기본값 Green
+        
+        # 3. ROI 추출 (지정된 Row 범위, 전체 X 구간, 지정된 채널)
+        # 0-based index이므로 바로 슬라이싱 사용
+        r_start = rule_config["ROW_START"]
+        r_end = rule_config["ROW_END"]
+        
+        roi = img_arr[r_start:r_end, :, ch_idx] # Shape: (Num_Rows, 256)
+        
+        # 4. X축 방향 평균 Profile 계산 (노이즈 완화)
+        profile = np.mean(roi, axis=0) # Shape: (256,)
+        
+        # 5. 선형 회귀 (Linear Regression)
+        x = np.arange(len(profile))
+        # 1차원 직선 피팅 (y = ax + b)
+        slope, intercept = np.polyfit(x, profile, 1)
+        fitted_line = slope * x + intercept
+        
+        # 6. 잔차(Residual) 계산
+        residuals = profile - fitted_line
+        
+        # 7. 최소값 반환 (이 값이 낮을수록 오목하게 파인 것)
+        min_residual = np.min(residuals)
+        
+        return min_residual
+
+    except Exception as e:
+        tqdm.write(f"  [Warning] 잔차 계산 중 오류: {e}")
+        return 0.0 # 오류 시 영향 없도록 0 반환
 
 def load_template_for_cv2(b64_string, target_size):
     """(★신규) Base64 문자열을 CV2용 Grayscale Numpy 배열로 로드합니다."""
@@ -152,16 +196,13 @@ def find_best_rotated_template_match(img_input_gray, tpl_base_gray):
             
     return best_score, best_top_left, best_angle
 
-def preprocess_for_inference(path, tpl_base_gray, tpl_h, tpl_w, tpl_h_half, tpl_w_half, crop_config):
+def preprocess_for_inference(path, tpl_base_gray, tpl_h, tpl_w, crop_config, rule_config):
     """
-    (★수정)
-    1. PIL/CV2로 원본(1500x1500) 이미지 로드 및 Crop
-    2. 결과(256x256)를 TF 텐서로 변환
-    3. 후속 TF 전처리 (std, norm, sobel, dark) 적용
+    (★수정) 기존 전처리 + Rule-based Score 계산
+    Return: (final_tensor, rule_score)
     """
-    
-    # === 1단계: PIL/CV2를 사용한 이미지 로드 및 Crop ===
     try:
+        # === 1. Image Load & Crop ===
         # 1-1. PIL로 이미지 열기 (EXIF 자동 회전 적용)
         pil_img = Image.open(path)
         pil_img_transposed = ImageOps.exif_transpose(pil_img)
@@ -182,14 +223,14 @@ def preprocess_for_inference(path, tpl_base_gray, tpl_h, tpl_w, tpl_h_half, tpl_
         
         # 1-5. 템플릿 매칭 실행
         best_score, best_top_left_relative, best_angle = find_best_rotated_template_match(
-            search_region_gray, 
+            search_region_gray,
             tpl_base_gray
         )
 
         if best_top_left_relative is None:
-            tqdm.write(f"  [Warning] {os.path.basename(path)} 매칭 실패. 건너뜁니다.")
-            return None
-            
+            tqdm.write(f"  [Warning] {os.path.basename(path)} 매칭 실패.")
+            return None, None # Tuple 반환
+        
         # 1-6. '절대 좌표'로 변환
         best_top_left = (
             best_top_left_relative[0] + x_min,
@@ -199,237 +240,194 @@ def preprocess_for_inference(path, tpl_base_gray, tpl_h, tpl_w, tpl_h_half, tpl_
         # 1-7. (중요) 원본 PIL 이미지(pil_img_transposed)에서 Crop
         tl_x, tl_y = best_top_left
         br_x, br_y = tl_x + tpl_w, tl_y + tpl_h
-        box = (tl_x, tl_y, br_x, br_y) # PIL.crop()용 (left, upper, right, lower)
+        box = (tl_x, tl_y, br_x, br_y) 
         
         cropped_pil_img = pil_img_transposed.crop(box)
 
         # 1-8. 최적 각도에 따라 회전
-        if best_angle == 0:
-            final_cropped_pil_img = cropped_pil_img
-        elif best_angle == 90:
+        if best_angle == 90:
             final_cropped_pil_img = cropped_pil_img.rotate(90, expand=True) 
         elif best_angle == 180:
             final_cropped_pil_img = cropped_pil_img.rotate(180, expand=True)
-        else: # 270
+        elif best_angle == 270:
             final_cropped_pil_img = cropped_pil_img.rotate(270, expand=True)
+        else:
+            final_cropped_pil_img = cropped_pil_img
         
-        # 'final_cropped_pil_img'가 (256, 256, 3) 크기의 PIL 이미지가 됨
+        # === (★추가) Rule-based Score 계산 ===
+        # 전처리 전에 원본(256x256 RGB) 상태에서 계산
+        rule_score = calculate_residual_score(final_cropped_pil_img, rule_config)
 
-    except Exception as e:
-        tqdm.write(f"  [Error] {os.path.basename(path)} Crop 처리 중 오류: {e}")
-        return None
-
-    # === 2단계: TensorFlow 전처리 파이프라인 적용 ===
-    try:
-        # 2-1. PIL Image -> Numpy Array -> tf.Tensor로 변환
+        # === 2. Tensor Conversion ===
         img_array = np.array(final_cropped_pil_img)
         img_tensor = tf.convert_to_tensor(img_array)
-        
-        # 2-2. [0,1] float32로 변환
         tensor_01_rgb = tf.image.convert_image_dtype(img_tensor, tf.float32)
         
-        # 2-3. (중요) 사용자 요청 파이프라인 적용
-        # crop_image() [완료] -> per_image_std() -> normalize01()
         img_std = per_image_std(tensor_01_rgb)
-        x01 = normalize01(img_std) # (256, 256, 3)
-        
-        # 2-4. sobel_mag() add -> darkness() add
+        x01 = normalize01(img_std) 
         edge = sobel_mag(x01)
-        # edge_norm = normalize01(edge) # (256, 256, 1)
+        dark = darkness(x01)
         
-        dark = darkness(x01) # (256, 256, 1)
+        final_tensor = tf.concat([x01, edge, dark], axis=-1)
         
-        # 2-5. 채널 병합
-        channels = [x01, edge, dark]
-        final_tensor = tf.concat(channels, axis=-1)
-        
-        # 5채널 확인
-        if final_tensor.shape[-1] != 5:
-             raise ValueError(f"최종 채널이 5가 아님 (현재: {final_tensor.shape[-1]})")
-             
-        return final_tensor
+        return final_tensor, rule_score
 
     except Exception as e:
-        tqdm.write(f"  [Error] {os.path.basename(path)} 텐서 변환/전처리 중 오류: {e}")
-        return None
-
+        tqdm.write(f"  [Error] {os.path.basename(path)} 처리 중 오류: {e}")
+        return None, None
 
 def parse_filename(filename):
-    """파일명 파싱 (이전과 동일)"""
-    # (내용 동일)
+    """파일명 파싱 (기존 동일)"""
     try:
         base_name = os.path.splitext(filename)[0]
         parts = base_name.split('___')
-        if len(parts) < 2: raise ValueError("___ 구분자 없음")
-        part1, part2, part3 = parts[0], parts[1], parts[2]
-        p1_split = part1.split('_'); p2_split = part2.split('_'); p3_split = part3.split('_')
-        if len(p1_split) < 5: raise ValueError("Part 1 _ 부족")
-        if len(p2_split) < 1: raise ValueError("Part 2 _ 부족")
-        metadata = {
-            "LOT_ID": p1_split[0], "GLS_ID": p1_split[1], "PNL_ID": p1_split[2],
-            "EQUIPMENT_ID": p1_split[3], "PROCESS_CODE": int(p1_split[4]),
-            "DEF_PNT_X": float(p2_split[0]), "DEF_PNT_Y": float(p2_split[1]),
-            "SEQ": int(p3_split[0])
+
+        if len(parts) < 2:
+            raise ValueError("___ 없음")
+
+        p1 = parts[0].split('_')
+        p2 = parts[1].split('_')
+        p3 = parts[2].split('_')
+
+        return {
+            "LOT_ID": p1[0],
+            "GLS_ID": p1[1],
+            "PNL_ID": p1[2],
+            "EQUIPMENT_ID": p1[3],
+            "PROCESS_CODE": int(p1[4]),
+            "DEF_PNT_X": float(p2[0]),
+            "DEF_PNT_Y": float(p2[1]),
+            "SEQ": int(p3[0])
         }
-        return metadata
-    except Exception as e:
-        # (parse_filename은 preprocess 이전에 호출되므로 tqdm.write 사용)
-        tqdm.write(f"  [Warning] 파일명 파싱 실패: {filename}. 오류: {e}")
+    except:
         return None
 
-# --- 5. 메인 추론 스크립트 (★수정: 설정 로드) ---
+# --- 5. 메인 추론 스크립트 ---
 
 def main():
+    global MODEL_PATH, IMG_SIZE, CROP_PARAMS, RULE_PARAMS
+    global GLOBAL_TEMPLATE_CV2_GRAY, TPL_H, TPL_W
     
-    # (★수정) 전역 변수 설정
-    global MODEL_PATH, IMG_SIZE, CROP_PARAMS
-    global GLOBAL_TEMPLATE_CV2_GRAY, TPL_H, TPL_W, TPL_H_HALF, TPL_W_HALF
-    
+    # 1. 설정 로드
     try:
         config = CONFIG[CURRENT_FACTORY]
         MODEL_PATH = os.path.join(BASE_PATH, config["MODEL_NAME"])
         IMG_SIZE = config["IMG_SIZE"]
         CROP_PARAMS = config["CROP_PARAMS"]
+        RULE_PARAMS = config["RULE_PARAMS"] # (★추가)
         
-        # 템플릿 크기 전역 변수 설정
         TPL_H, TPL_W = IMG_SIZE[0], IMG_SIZE[1]
-        TPL_H_HALF, TPL_W_HALF = TPL_H // 2, TPL_W // 2
         
-        print(f"--- [ {CURRENT_FACTORY} ] 공장 설정 로드 ---")
-        print(f"모델: {MODEL_PATH}")
-        print(f"이미지/템플릿 크기: {IMG_SIZE}")
-        
-        # (★수정) CV2용 그레이스케일 템플릿 로드
+        print(f"--- [ {CURRENT_FACTORY} ] 설정 로드 ---")
+        print(f"Rule-based: Row {RULE_PARAMS['ROW_START']}~{RULE_PARAMS['ROW_END']}, "
+              f"Ch {RULE_PARAMS['CHANNEL']}, Thresh {RULE_PARAMS['RESIDUAL_THRESH']}")
+
         GLOBAL_TEMPLATE_CV2_GRAY = load_template_for_cv2(config["TEMPLATE_BASE64"], IMG_SIZE)
         if GLOBAL_TEMPLATE_CV2_GRAY is None:
-            print("CV2 템플릿 로드 실패. 스크립트를 종료합니다.")
             return
-            
-    except KeyError:
-        print(f"'{CURRENT_FACTORY}'에 대한 설정을 CONFIG에서 찾을 수 없습니다.")
-        return
+    
     except Exception as e:
-        print(f"설정 로드 중 오류: {e}")
+        print(f"설정 로드 오류: {e}")
         return
     
-    print("-" * 30)
-    
-    print(f"모델 로딩 중: {MODEL_PATH}")
+    # 2. 모델 로드
+    print(f"모델 로딩: {MODEL_PATH}")
     try:
         model = load_model(MODEL_PATH)
     except Exception as e:
         print(f"모델 로드 실패: {e}")
-        print("스크립트를 종료합니다.")
         return
-    print("모델 로딩 완료.")
 
-    # (이하 이미지 파일 검색 로직은 동일)
+    # 3. 이미지 파일 검색
     try:
-        image_files = sorted([
-            f for f in os.listdir(IMAGE_FOLDER) 
-            if f.lower().endswith(('.jpg', '.jpeg', '.bmp', '.png'))
-        ])
-    except FileNotFoundError:
-        print(f"이미지 폴더를 찾을 수 없습니다: {IMAGE_FOLDER}")
-        return
-    if not image_files:
-        print(f"이미지 폴더에 파일이 없습니다: {IMAGE_FOLDER}")
+        image_files = sorted([f for f in os.listdir(IMAGE_FOLDER) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+
+    except:
         return
 
-    print(f"총 {len(image_files)}개의 이미지 파일 처리 시작...")
+    if not image_files:
+        return
+
+    print(f"총 {len(image_files)}개 처리 시작...")
 
     results_list = []
-    processed_gls_ids = set() 
+    processed_gls_ids = set()
 
-    for filename in tqdm(image_files, desc="추론 진행"):
+    # 4. 추론 루프
+    for filename in tqdm(image_files, desc="추론"):
         file_path = os.path.join(IMAGE_FOLDER, filename)
         
-        if not os.path.isfile(file_path):
-            continue
-
         try:
-            # 1. 파일명 파싱 (Crop 전에 수행)
             metadata = parse_filename(filename)
-            if metadata is None:
-                continue # parse_filename 내부에서 이미 경고 출력
+            if metadata is None: continue
             
-            current_gls_id = metadata["GLS_ID"]
-
-            # 2. 동적 폴더 경로 설정
-            OK_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{current_gls_id}_OK")
-            ESD_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{current_gls_id}_ESD")
+            gls_id = metadata["GLS_ID"]
+            OK_FOLDER = os.path.join(BASE_PATH, f"{gls_id}_OK")
+            ESD_FOLDER = os.path.join(BASE_PATH, f"{gls_id}_ESD")
             
-            if current_gls_id not in processed_gls_ids:
-                os.makedirs(OK_FOLDER_DYNAMIC, exist_ok=True)
-                os.makedirs(ESD_FOLDER_DYNAMIC, exist_ok=True)
-                processed_gls_ids.add(current_gls_id)
-                tqdm.write(f"  (결과 폴더 확인/생성: {OK_FOLDER_DYNAMIC}, {ESD_FOLDER_DYNAMIC})")
+            if gls_id not in processed_gls_ids:
+                os.makedirs(OK_FOLDER, exist_ok=True)
+                os.makedirs(ESD_FOLDER, exist_ok=True)
+                processed_gls_ids.add(gls_id)
 
-            # 3. (★수정) 통합 전처리 (Crop + TF 변환 + TF 전처리)
-            tensor = preprocess_for_inference(
-                file_path, 
-                GLOBAL_TEMPLATE_CV2_GRAY, 
-                TPL_H, TPL_W, 
-                TPL_H_HALF, TPL_W_HALF, 
-                CROP_PARAMS
+            # (★수정) 전처리 호출 (결과: Tensor, Score)
+            tensor, rule_score = preprocess_for_inference(
+                file_path, GLOBAL_TEMPLATE_CV2_GRAY, TPL_H, TPL_W, CROP_PARAMS, RULE_PARAMS
             )
             
-            # Crop/전처리 실패 시
-            if tensor is None:
-                continue # preprocess_for_inference 내부에서 이미 경고 출력
+            if tensor is None: continue
 
-            # 4. 모델 추론
+            # (★수정) 모델 추론
             tensor_batch = tf.expand_dims(tensor, axis=0)
             pred = model.predict(tensor_batch, verbose=0)[0][0]
-            pred = float(pred)
+            pred = float(pred) # 0.0 ~ 1.0 (높을수록 OK라고 가정)
 
-            # 5. 결과 분류
-            result_label = "OK" if pred >= THRESHOLD else "ESD"
+            # (★수정) 하이브리드 판정 로직
+            # Logic: Rule Score가 임계값보다 낮으면(오목하면) 무조건 불량 처리 (누출 방지)
+            #        그렇지 않으면 모델의 판단을 따름
+            
+            is_rule_bad = rule_score < RULE_PARAMS["RESIDUAL_THRESH"]
+            is_model_ok = pred >= THRESHOLD
+            
+            if is_rule_bad:
+                result_label = "ESD" # Rule-based 강제 불량 (누출 방지)
+                decision_note = "Rule_Defect"
+            else:
+                if is_model_ok:
+                    result_label = "OK"
+                    decision_note = "Model_OK"
+                else:
+                    # 모델이 불량이라 했지만 Rule은 정상인 경우 -> 일단 모델 의견 존중
+                    result_label = "ESD" 
+                    decision_note = "Model_Defect"
 
-            # 6. 결과 저장 (배포판 PRED 제외)
+            # 결과 저장
             row = {
                 "FILENAME": filename,
-                "RESULT": result_label
+                "RESULT": result_label,
+                "MODEL_PROB": round(pred, 4),       # 모델 점수
+                "RULE_SCORE": round(rule_score, 4), # 잔차 점수
+                "NOTE": decision_note
             }
             row.update(metadata)
             results_list.append(row)
 
-            # 7. 파일 이동
-            if result_label == "OK":
-                dest_path = os.path.join(OK_FOLDER_DYNAMIC, filename)
-            else:
-                dest_path = os.path.join(ESD_FOLDER_DYNAMIC, filename)
-            
-            shutil.move(file_path, dest_path)
+            # 파일 이동
+            dest_folder = OK_FOLDER if result_label == "OK" else ESD_FOLDER
+            shutil.move(file_path, os.path.join(dest_folder, filename))
 
         except Exception as e:
-            tqdm.write(f"  [Error] 파일 {filename} 처리 중 메인 루프 오류: {e}")
+            tqdm.write(f"  [Error] {filename}: {e}")
 
-    print("추론 및 파일 이동 완료.")
-
-    # --- 6. DataFrame 생성 및 Excel 저장 (이전과 동일) ---
-    if not results_list:
-        print("처리된 이미지가 없어 Excel 파일을 생성하지 않습니다.")
-        return
-
-    result_df = pd.DataFrame(results_list)
-    
-    try:
-        grouped = result_df.groupby("GLS_ID")
-        if not grouped.groups:
-            print("결과 데이터에 GLS_ID가 없습니다. Excel 저장 실패.")
-            return
-
-        print(f"\n총 {len(grouped)}개의 GLS_ID에 대해 Excel 파일 저장 시작...")
-        
-        for gls_id, group_df in grouped:
-            output_excel_path = os.path.join(BASE_PATH, f"{gls_id}.xlsx")
-            group_df.to_excel(output_excel_path, index=False, engine='openpyxl')
-            print(f"  -> 결과가 성공적으로 저장되었습니다: {output_excel_path}")
-            
-    except Exception as e:
-        print(f"Excel 파일 저장 중 오류 발생: {e}")
-
+    # 5. 결과 저장 (Excel)
+    if results_list:
+        df = pd.DataFrame(results_list)
+        try:
+            for gls_id, g_df in df.groupby("GLS_ID"):
+                g_df.to_excel(os.path.join(BASE_PATH, f"{gls_id}.xlsx"), index=False)
+            print("Excel 저장 완료.")
+        except Exception as e:
+            print(f"Excel 저장 실패: {e}")
 
 if __name__ == "__main__":
     main()
