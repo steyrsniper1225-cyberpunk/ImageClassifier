@@ -255,6 +255,10 @@ def parse_filename(filename):
         }
         
         return metadata
+        
+    except Exception as e:
+        tqdm.write(f"[WARNING] Filename Parsing Failed : {filename} -> Error : {e}")
+        return None
 
 # --- 5. 메인 추론 스크립트 ---
 
@@ -265,19 +269,22 @@ def main():
     # 1. 설정 로드
     try:
         config = CONFIG[CURRENT_FACTORY]
-        MODEL_PATH = os.path.join(BASE_PATH, config["MODEL_NAME"])
+        MODEL_PATH = os.path.join(BASE_PATH, "EMG_MODEL", config["MODEL_NAME"])
         IMG_SIZE = config["IMG_SIZE"]
         CROP_PARAMS = config["CROP_PARAMS"]
-        RULE_PARAMS = config["RULE_PARAMS"] # (★추가)
+        RULE_PARAMS = config["RULE_PARAMS"]
         
         TPL_H, TPL_W = IMG_SIZE[0], IMG_SIZE[1]
         
         print(f"--- [ {CURRENT_FACTORY} ] 설정 로드 ---")
-        print(f"Rule-based: Row {RULE_PARAMS['ROW_START']}~{RULE_PARAMS['ROW_END']}, "
-              f"Ch {RULE_PARAMS['CHANNEL']}, Thresh {RULE_PARAMS['RESIDUAL_THRESH']}")
+        print(f"Rule-based: Row {RULE_PARAMS['ROW_START']}~{RULE_PARAMS['ROW_END']}")
+        print(f"Ch {RULE_PARAMS['CHANNEL']}, Thresh {RULE_PARAMS['RESIDUAL_THRESH']}")
+        print(f" Model : {MODEL_PATH}")
+        print(f"Image/Template Size : {IMG_SIZE}")
 
         GLOBAL_TEMPLATE_CV2_GRAY = load_template_for_cv2(config["TEMPLATE_BASE64"], IMG_SIZE)
         if GLOBAL_TEMPLATE_CV2_GRAY is None:
+            print("Template load failed. Exit Script")
             return
     
     except Exception as e:
@@ -290,16 +297,18 @@ def main():
         model = load_model(MODEL_PATH)
     except Exception as e:
         print(f"모델 로드 실패: {e}")
+        print(f"Exit Script")
         return
+    print("Model Loading Complete")
 
     # 3. 이미지 파일 검색
     try:
         image_files = sorted([f for f in os.listdir(IMAGE_FOLDER) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-
-    except:
-        return
+    except FileNotFoundError:
+        print(f"Image Folder is not exist : {IMAGE_FOLDER}")
 
     if not image_files:
+        print(f"Image is not exist in Folder : {IMAGE_FOLDER}")
         return
 
     print(f"총 {len(image_files)}개 처리 시작...")
@@ -311,25 +320,31 @@ def main():
     for filename in tqdm(image_files, desc="추론"):
         file_path = os.path.join(IMAGE_FOLDER, filename)
         
+        if not os.path.isfile(file_path):
+            continue
+            
         try:
             metadata = parse_filename(filename)
-            if metadata is None: continue
+            if metadata is None:
+                continue
             
             gls_id = metadata["GLS_ID"]
-            OK_FOLDER = os.path.join(BASE_PATH, f"{gls_id}_OK")
-            ESD_FOLDER = os.path.join(BASE_PATH, f"{gls_id}_ESD")
+            OK_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{gls_id}_OK")
+            ESD_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{gls_id}_ESD")
             
             if gls_id not in processed_gls_ids:
-                os.makedirs(OK_FOLDER, exist_ok=True)
-                os.makedirs(ESD_FOLDER, exist_ok=True)
+                os.makedirs(OK_FOLDER_DYNAMIC, exist_ok=True)
+                os.makedirs(ESD_FOLDER_DYNAMIC, exist_ok=True)
                 processed_gls_ids.add(gls_id)
+                tqdm.write(f"Result Folder : {OK_FOLDER_DYNAMIC}, {ESD_FOLDER_DYNAMIC}")
 
             # (★수정) 전처리 호출 (결과: Tensor, Score)
             tensor, rule_score = preprocess_for_inference(
                 file_path, GLOBAL_TEMPLATE_CV2_GRAY, TPL_H, TPL_W, CROP_PARAMS, RULE_PARAMS
             )
             
-            if tensor is None: continue
+            if tensor is None:
+                continue
 
             # (★수정) 모델 추론
             tensor_batch = tf.expand_dims(tensor, axis=0)
@@ -357,11 +372,11 @@ def main():
 
             # 결과 저장
             row = {
-                "FILENAME": filename,
-                "RESULT": result_label,
-                "MODEL_PROB": round(pred, 4),       # 모델 점수
-                "RULE_SCORE": round(rule_score, 4), # 잔차 점수
-                "NOTE": decision_note
+                "FileName": filename,
+                "Result": result_label,
+                "Model_Value": round(pred, 4),       # 모델 점수
+                "Rule_Score": round(rule_score, 4), # 잔차 점수
+                "Note": decision_note
             }
             row.update(metadata)
             results_list.append(row)
