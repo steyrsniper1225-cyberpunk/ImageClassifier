@@ -171,7 +171,7 @@ def preprocess_for_inference(path, tpl_base_gray, tpl_h, tpl_w, crop_config, rul
 
         if best_top_left_relative is None:
             tqdm.write(f"  [Warning] {os.path.basename(path)} 매칭 실패.")
-            return None, None # Tuple 반환
+            return None
         
         # 1-6. '절대 좌표'로 변환
         best_top_left = (
@@ -210,7 +210,10 @@ def preprocess_for_inference(path, tpl_base_gray, tpl_h, tpl_w, crop_config, rul
         edge = sobel_mag(x01)
         dark = darkness(x01)
         
-        final_tensor = tf.concat([x01, edge, dark], axis=-1)
+        channels = [x01, edge, dark]
+        final_tensor = tf.concat(channels, axis = -1)
+        if final_tensor.shape[-1] != 5:
+            raise ValueError(f"Final Channel is not 5 (current : {final_tensor.shape[-1]})")
         
         return final_tensor, rule_score
 
@@ -286,10 +289,15 @@ def main():
         if GLOBAL_TEMPLATE_CV2_GRAY is None:
             print("Template load failed. Exit Script")
             return
+            
+    except KeyError:
+        print(f"'{CURRENT_FACTORY}' is not exists in CONFIG")
     
     except Exception as e:
         print(f"설정 로드 오류: {e}")
         return
+        
+    print("-" * 30)
     
     # 2. 모델 로드
     print(f"모델 로딩: {MODEL_PATH}")
@@ -317,7 +325,7 @@ def main():
     processed_gls_ids = set()
 
     # 4. 추론 루프
-    for filename in tqdm(image_files, desc="추론"):
+    for filename in tqdm(image_files, desc = "Processing"):
         file_path = os.path.join(IMAGE_FOLDER, filename)
         
         if not os.path.isfile(file_path):
@@ -328,14 +336,14 @@ def main():
             if metadata is None:
                 continue
             
-            gls_id = metadata["GLS_ID"]
-            OK_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{gls_id}_OK")
-            ESD_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{gls_id}_ESD")
+            current_gls_id = metadata["Glass_ID"]
+            OK_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{current_gls_id}_OK")
+            ESD_FOLDER_DYNAMIC = os.path.join(BASE_PATH, f"{current_gls_id}_ESD")
             
-            if gls_id not in processed_gls_ids:
+            if current_gls_id not in processed_gls_ids:
                 os.makedirs(OK_FOLDER_DYNAMIC, exist_ok=True)
                 os.makedirs(ESD_FOLDER_DYNAMIC, exist_ok=True)
-                processed_gls_ids.add(gls_id)
+                processed_gls_ids.add(current_gls_id)
                 tqdm.write(f"Result Folder : {OK_FOLDER_DYNAMIC}, {ESD_FOLDER_DYNAMIC}")
 
             # (★수정) 전처리 호출 (결과: Tensor, Score)
@@ -374,10 +382,11 @@ def main():
             row = {
                 "FileName": filename,
                 "Result": result_label,
-                "Model_Value": round(pred, 4),       # 모델 점수
-                "Rule_Score": round(rule_score, 4), # 잔차 점수
+                "Model_Value": round(pred, 4),
+                "Rule_Score": round(rule_score, 4),
                 "Note": decision_note
             }
+            
             row.update(metadata)
             results_list.append(row)
 
