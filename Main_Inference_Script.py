@@ -382,21 +382,41 @@ def main():
             results_list.append(row)
 
             # 파일 이동
-            dest_folder = OK_FOLDER if result_label == "OK" else ESD_FOLDER
-            shutil.move(file_path, os.path.join(dest_folder, filename))
+            if result_label == OK:
+                dest_path = os.path.join(OK_FOLDER_DYNAMIC, filename)
+            else:
+                dest_path = os.path.join(ESD_FOLDER_DYNAMIC, filename)
+                
+            shutil.move(file_path, dest_path)
 
         except Exception as e:
-            tqdm.write(f"  [Error] {filename}: {e}")
+            tqdm.write(f"[Error] Error Occured when processing File : {filename}, Error : {e}")
+    
+    print("Classification & Sorting Complete")
 
     # 5. 결과 저장 (Excel)
-    if results_list:
-        df = pd.DataFrame(results_list)
-        try:
-            for gls_id, g_df in df.groupby("GLS_ID"):
-                g_df.to_excel(os.path.join(BASE_PATH, f"{gls_id}.xlsx"), index=False)
-            print("Excel 저장 완료.")
-        except Exception as e:
-            print(f"Excel 저장 실패: {e}")
-
+    if not results_list:
+        print(f"No Processed Image to save Excel File")
+        return
+        
+    result_df = pd.DataFrame(results_list)
+    
+    try:
+        grouped = result_df.groupby("Glass_ID")
+        if not grouped.groups:
+            print(f"Saving Excel Failed")
+            return
+            
+        print(f"\n Total {len(grouped)} Glass : Excel Saving . . .")
+        
+        for gls_id, group_df in grouped:
+            outout_excel_path = os.path.join(BASE_PATH, f"{gls_id}.xlsx")
+            group_df.to_excel(output_excel_path, index = False, engine = "openpyxl")
+            print(f"Saving Results to Excel Complete : {output_excel_path}")
+            print("[DONE] Auto EMG Classification Completed !")
+            
+    except Exception as e:
+        print(f"[ERROR] Saving Excel Failed : {e}")
+        
 if __name__ == "__main__":
     main()
