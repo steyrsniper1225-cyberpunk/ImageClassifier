@@ -24,7 +24,7 @@ BASE_PATH = args.base_path
 IMAGE_FOLDER = os.path.join(BASE_PATH, "EMG_IMAGE")
 
 CURRENT_FACTORY = "A"
-MODEL_PATH = None
+MODEL_PATH = "Input_Absolute_Path_Here"
 IMG_SIZE = None
 CROP_PARAMS = None
 RULE_PARAMS = None
@@ -272,7 +272,6 @@ def main():
     # 1. 설정 로드
     try:
         config = CONFIG[CURRENT_FACTORY]
-        MODEL_PATH = os.path.join(BASE_PATH, "EMG_MODEL", config["MODEL_NAME"])
         IMG_SIZE = config["IMG_SIZE"]
         CROP_PARAMS = config["CROP_PARAMS"]
         RULE_PARAMS = config["RULE_PARAMS"]
