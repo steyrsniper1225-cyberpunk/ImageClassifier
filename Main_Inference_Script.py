@@ -16,25 +16,20 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tqdm import tqdm
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--base_path", type = str)
-args = parser.parse_args()
-BASE_PATH = args.base_path
+BASE_PATH = "type_absolute_path"
 IMAGE_FOLDER = os.path.join(BASE_PATH, "EMG_IMAGE")
 
 CURRENT_FACTORY = "A"
-MODEL_PATH = "Input_Absolute_Path_Here"
 IMG_SIZE = None
 CROP_PARAMS = None
 RULE_PARAMS = None
-
-THRESHOLD = 0.4 # Model Threshold
+THRESHOLD = 0.01
+RESIDUAL_THRESH = -9.0
 GLOBAL_TEMPLATE_CV2_GRAY = None
 TPL_H, TPL_W = 0, 0
 
-TEMPLATE_A_BASE64 = "none"
-TEMPLATE_B_BASE64 = "none"
+TEMPLATE_A_BASE64 = "input_base64_image"
+TEMPLATE_B_BASE64 = "input_base64_image"
 
 CONFIG = {
     "A": {
@@ -42,14 +37,14 @@ CONFIG = {
         "IMG_SIZE": (256, 256),
         "TEMPLATE_BASE64": TEMPLATE_A_BASE64,
         "CROP_PARAMS": {"HINT_X_MIN": 20, "HINT_X_MAX": 1224, "HINT_Y_MIN": 20, "HINT_Y_MAX": 1224, "MAX_SHIFT": 20},
-        "RULE_PARAMS": {"ROW_START": 65, "ROW_END": 70, "CHANNEL": "Green", "RESIDUAL_THRESH": -10.0}
+        "RULE_PARAMS": {"ROW_START": 65, "ROW_END": 70, "CHANNEL": "Green", "RESIDUAL_THRESH": RESIDUAL_THRESH}
     },
     "B": {
         "MODEL_NAME": "Model_B.keras",
         "IMG_SIZE": (256, 256),
         "TEMPLATE_BASE64": TEMPLATE_B_BASE64,
         "CROP_PARAMS": {"HINT_X_MIN": 20, "HINT_X_MAX": 1224, "HINT_Y_MIN": 20, "HINT_Y_MAX": 1224, "MAX_SHIFT": 20},
-        "RULE_PARAMS": {"ROW_START": 65, "ROW_END": 70, "CHANNEL": "Green", "RESIDUAL_THRESH": -10.0}
+        "RULE_PARAMS": {"ROW_START": 65, "ROW_END": 70, "CHANNEL": "Green", "RESIDUAL_THRESH": RESIDUAL_THRESH}
     }
 }
 
@@ -272,7 +267,9 @@ def main():
     # 1. 설정 로드
     try:
         config = CONFIG[CURRENT_FACTORY]
+        
         IMG_SIZE = config["IMG_SIZE"]
+        MODEL_PATH = os.path.join(BASE_PATH, "EMG_MODEL", config["MODEL_NAME"])
         CROP_PARAMS = config["CROP_PARAMS"]
         RULE_PARAMS = config["RULE_PARAMS"]
         
@@ -362,27 +359,30 @@ def main():
             # Logic: Rule Score가 임계값보다 낮으면(오목하면) 무조건 불량 처리 (누출 방지)
             #        그렇지 않으면 모델의 판단을 따름
             
-            is_rule_bad = rule_score < RULE_PARAMS["RESIDUAL_THRESH"]
             is_model_ok = pred >= THRESHOLD
+            is_rule_ok = rule_score < RULE_PARAMS["RESIDUAL_THRESH"]
             
-            if is_rule_bad:
-                result_label = "ESD" # Rule-based 강제 불량 (누출 방지)
-                decision_note = "Rule_Defect"
-            else:
-                if is_model_ok:
+            if is_model_ok:
+                if is_rule_ok:
                     result_label = "OK"
-                    decision_note = "Model_OK"
+                    decision_note = "OK_Align"
                 else:
-                    # 모델이 불량이라 했지만 Rule은 정상인 경우 -> 일단 모델 의견 존중
-                    result_label = "ESD" 
-                    decision_note = "Model_Defect"
+                    result_label = "ESD"
+                    decision_note = "ESD_By_Rule"
+            else:
+                if is_rule_ok:
+                    result_label = "ESD"
+                    decision_note = "ESD_By_Model"
+                else:
+                    result_label = "ESD"
+                    decision_note = "ESD_Align"
 
             # 결과 저장
             row = {
                 "FileName": filename,
                 "Result": result_label,
-                "Model_Value": round(pred, 4),
-                "Rule_Score": round(rule_score, 4),
+                "Model_Value": round(pred, 2),
+                "Rule_Score": round(rule_score, 2),
                 "Note": decision_note
             }
             
