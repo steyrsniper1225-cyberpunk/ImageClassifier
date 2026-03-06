@@ -2,6 +2,7 @@
 tensor_batch = tf.expand_dims(tensor, axis=0)
 pred_tensor = model(tensor_batch, training=False)
 pred = float(pred_tensor[0][0])
+# 2.3it/s에서 1.6it/s로 속도 저하
 
 # 코드 상단(def per_image_std 근처)에 아래 함수 추가:
 @tf.function
