@@ -243,7 +243,7 @@ def parse_filename(filename):
             
         metadata = {
             "Lot ID": p1_split[0],
-            "Glass_ID: p1_split[1],
+            "Glass_ID": p1_split[1],
             "Panel_ID": p1_split[2],
             "MACHINE_ID": p1_split[3],
             "PROCESS_CODE": int(p1_split[4]),
@@ -320,10 +320,50 @@ def main():
     results_list = []
     processed_gls_ids = set()
 
-    # 4. 추론 루프
-    for filename in tqdm(image_files, desc = "Processing"):
-        file_path = os.path.join(IMAGE_FOLDER, filename)
+    # 4. 추론 루프 (Batch 적용)
+    BATCH_SIZE = 16
+    batch_tensors = []
+    batch_info = []
+
+    def process_batch():
+        if not batch_tensors:
+            return
         
+        batch_array = tf.stack(batch_tensors)
+        preds = model.predict(batch_array, verbose=0)
+        
+        for idx, pred_val in enumerate(preds):
+            pred = float(pred_val[0])
+            filename, file_path, metadata, rule_score, ok_folder, esd_folder = batch_info[idx]
+            
+            is_model_ok = pred >= THRESHOLD
+            is_rule_ok = rule_score < RULE_PARAMS["RESIDUAL_THRESH"]
+            
+            if is_model_ok and is_rule_ok:
+                result_label, decision_note = "OK", "OK_Align"
+            elif is_model_ok and not is_rule_ok:
+                result_label, decision_note = "ESD", "ESD_By_Rule"
+            elif not is_model_ok and is_rule_ok:
+                result_label, decision_note = "ESD", "ESD_By_Model"
+            else:
+                result_label, decision_note = "ESD", "ESD_Align"
+
+            row = {
+                "FileName": filename, "Result": result_label,
+                "Model_Value": round(pred, 2), "Rule_Score": round(rule_score, 2), "Note": decision_note
+            }
+            row.update(metadata)
+            results_list.append(row)
+
+            dest_path = os.path.join(ok_folder if result_label == "OK" else esd_folder, filename)
+            shutil.move(file_path, dest_path)
+            
+        batch_tensors.clear()
+        batch_info.clear()
+        return None
+
+    for filename in tqdm(image_files, desc="Processing"):
+        file_path = os.path.join(IMAGE_FOLDER, filename)
         if not os.path.isfile(file_path):
             continue
             
@@ -340,9 +380,7 @@ def main():
                 os.makedirs(OK_FOLDER_DYNAMIC, exist_ok=True)
                 os.makedirs(ESD_FOLDER_DYNAMIC, exist_ok=True)
                 processed_gls_ids.add(current_gls_id)
-                tqdm.write(f"Result Folder : {OK_FOLDER_DYNAMIC}, {ESD_FOLDER_DYNAMIC}")
 
-            # (★수정) 전처리 호출 (결과: Tensor, Score)
             tensor, rule_score = preprocess_for_inference(
                 file_path, GLOBAL_TEMPLATE_CV2_GRAY, TPL_H, TPL_W, CROP_PARAMS, RULE_PARAMS
             )
@@ -350,56 +388,18 @@ def main():
             if tensor is None:
                 continue
 
-            # (★수정) 모델 추론
-            tensor_batch = tf.expand_dims(tensor, axis=0)
-            pred = model.predict(tensor_batch, verbose=0)[0][0]
-            pred = float(pred) # 0.0 ~ 1.0 (높을수록 OK라고 가정)
-
-            # (★수정) 하이브리드 판정 로직
-            # Logic: Rule Score가 임계값보다 낮으면(오목하면) 무조건 불량 처리 (누출 방지)
-            #        그렇지 않으면 모델의 판단을 따름
+            batch_tensors.append(tensor)
+            batch_info.append((filename, file_path, metadata, rule_score, OK_FOLDER_DYNAMIC, ESD_FOLDER_DYNAMIC))
             
-            is_model_ok = pred >= THRESHOLD
-            is_rule_ok = rule_score < RULE_PARAMS["RESIDUAL_THRESH"]
-            
-            if is_model_ok:
-                if is_rule_ok:
-                    result_label = "OK"
-                    decision_note = "OK_Align"
-                else:
-                    result_label = "ESD"
-                    decision_note = "ESD_By_Rule"
-            else:
-                if is_rule_ok:
-                    result_label = "ESD"
-                    decision_note = "ESD_By_Model"
-                else:
-                    result_label = "ESD"
-                    decision_note = "ESD_Align"
-
-            # 결과 저장
-            row = {
-                "FileName": filename,
-                "Result": result_label,
-                "Model_Value": round(pred, 2),
-                "Rule_Score": round(rule_score, 2),
-                "Note": decision_note
-            }
-            
-            row.update(metadata)
-            results_list.append(row)
-
-            # 파일 이동
-            if result_label == OK:
-                dest_path = os.path.join(OK_FOLDER_DYNAMIC, filename)
-            else:
-                dest_path = os.path.join(ESD_FOLDER_DYNAMIC, filename)
-                
-            shutil.move(file_path, dest_path)
+            # Batch Size에 도달하면 추론 및 파일 처리 실행
+            if len(batch_tensors) >= BATCH_SIZE:
+                process_batch()
 
         except Exception as e:
             tqdm.write(f"[Error] Error Occured when processing File : {filename}, Error : {e}")
-    
+
+    # 남아있는 잔여 이미지 처리
+    process_batch()
     print("Classification & Sorting Complete")
 
     # 5. 결과 저장 (Excel)
