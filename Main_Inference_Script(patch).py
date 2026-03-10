@@ -5,6 +5,7 @@ pred = float(pred_tensor[0][0])
 # 2.3it/s에서 1.6it/s로 속도 저하
 
 # 코드 상단(def per_image_std 근처)에 아래 함수 추가:
+# 2.3it/s에서 2.3it/s로 속도 동등
 @tf.function
 def build_tensor_graph(img_tensor):
     tensor_01_rgb = tf.image.convert_image_dtype(img_tensor, tf.float32)
