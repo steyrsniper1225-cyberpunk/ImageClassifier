@@ -337,7 +337,7 @@ def main():
             filename, file_path, metadata, rule_score, ok_folder, esd_folder = batch_info[idx]
             
             is_model_ok = pred >= THRESHOLD
-            is_rule_ok = rule_score < RULE_PARAMS["RESIDUAL_THRESH"]
+            is_rule_ok = rule_score > RULE_PARAMS["RESIDUAL_THRESH"]
             
             if is_model_ok and is_rule_ok:
                 result_label, decision_note = "OK", "OK_Align"
