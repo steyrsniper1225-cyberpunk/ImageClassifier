@@ -52,7 +52,7 @@ conda activate ml11
 
 # 4. 패키지 설치
 echo "[4/7] 패키지 설치 중 ($BIN_MGR 사용)..."
-$BIN_MGR install tensorflow=2.17.0 pandas=2.3.2 numpy=1.26.4 openpyxl=3.1.5 pillow=11.3.0 ipykernel tqdm -y
+$BIN_MGR install tensorflow=2.17.0 pandas=2.3.2 numpy=1.26.4 openpyxl=3.1.5 pillow=11.3.0 ipykernel tqdm opencv -y
 
 # 5. 터미널용 환경변수 자동화 (activate.d)
 echo "[5/7] activate.d 설정 중..."
