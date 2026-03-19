@@ -26,6 +26,7 @@ fi
 
 # Conda 환경 초기화 로드
 source "$CONDA_BASE/etc/profile.d/conda.sh"
+export PATH="$CONDA_BASE/bin:$CONDA_BASE/condabin:$PATH"
 
 # [핵심] Mamba 명령어 가용성 체크
 if command -v mamba &> /dev/null; then
