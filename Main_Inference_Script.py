@@ -230,7 +230,7 @@ def parse_filename(filename):
         
         p1_split = part1.split("_")
         p2_split = part2.split("_")
-        p3_split = pary3.split("_")
+        p3_split = part3.split("_")
         
         if len(p1_split) < 5:
             raise ValueError(f"part1 : underbar _ is under 5, Current : {len(p1_split)}")
