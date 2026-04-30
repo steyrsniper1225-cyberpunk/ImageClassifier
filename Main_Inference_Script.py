@@ -29,20 +29,12 @@ GLOBAL_TEMPLATE_CV2_GRAY = None
 TPL_H, TPL_W = 0, 0
 
 TEMPLATE_A_BASE64 = "input_base64_image"
-TEMPLATE_B_BASE64 = "input_base64_image"
 
 CONFIG = {
     "A": {
         "MODEL_NAME": "Model_A.keras",
         "IMG_SIZE": (256, 256),
         "TEMPLATE_BASE64": TEMPLATE_A_BASE64,
-        "CROP_PARAMS": {"HINT_X_MIN": 20, "HINT_X_MAX": 1224, "HINT_Y_MIN": 20, "HINT_Y_MAX": 1224, "MAX_SHIFT": 20},
-        "RULE_PARAMS": {"ROW_START": 65, "ROW_END": 70, "CHANNEL": "Green", "RESIDUAL_THRESH": RESIDUAL_THRESH}
-    },
-    "B": {
-        "MODEL_NAME": "Model_B.keras",
-        "IMG_SIZE": (256, 256),
-        "TEMPLATE_BASE64": TEMPLATE_B_BASE64,
         "CROP_PARAMS": {"HINT_X_MIN": 20, "HINT_X_MAX": 1224, "HINT_Y_MIN": 20, "HINT_Y_MAX": 1224, "MAX_SHIFT": 20},
         "RULE_PARAMS": {"ROW_START": 65, "ROW_END": 70, "CHANNEL": "Green", "RESIDUAL_THRESH": RESIDUAL_THRESH}
     }
@@ -60,7 +52,8 @@ def sobel_mag(x01):
     x4 = tf.expand_dims(x01, axis=0)
     sob = tf.image.sobel_edges(x4)
     sob = tf.squeeze(sob, axis=0)
-    gx = sob[..., 0]; gy = sob[..., 1]
+    gx = sob[..., 0]
+    gy = sob[..., 1]
     mag = tf.sqrt(gx * gx + gy * gy)
     mag = tf.reduce_mean(mag, axis=-1, keepdims=True)
     return mag
@@ -330,7 +323,7 @@ def main():
             return
         
         batch_array = tf.stack(batch_tensors)
-        preds = model.predict(batch_array, verbose=0)
+        preds = model.predict(batch_array, verbose = 0)
         
         for idx, pred_val in enumerate(preds):
             pred = float(pred_val[0])
@@ -349,8 +342,11 @@ def main():
                 result_label, decision_note = "ESD", "ESD_Align"
 
             row = {
-                "FileName": filename, "Result": result_label,
-                "Model_Value": round(pred, 2), "Rule_Score": round(rule_score, 2), "Note": decision_note
+                "FileName": filename,
+                "Result": result_label,
+                "Model_Value": round(pred, 2),
+                "Rule_Score": round(rule_score, 2),
+                "Note": decision_note
             }
             row.update(metadata)
             results_list.append(row)
