@@ -1,16 +1,29 @@
 import os , random, datetime
 import pandas as pd
 import numpy as np
+
+os.environ["TF_CUDNN_USE_AUTOTUNE"] = '0'
+os.environ["TF_GPU_ALLOCATOR"] = 'cuda_malloc_async'
+
 import tensorflow as tf
-import cv2
-from PIL import Image, ImageOps
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    tf.config.experimental.set_memory_growth(gpus[0], True)
+    tf.config.optimizer.set_jit(False)
+
 from tensorflow.keras import layers, models
-from tensorflow.keras.applications import VGG16, ResNet50V2, EfficientNetV2S
+from tensorflow.keras.applications import ResNet50V2
+from tensorflow.keras.applications.resnet_v2 import preprocess_input
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 
+from tensorflow.keras import mixed_precision
+policy = mixed_precision.Policy('mixed_float16')
+mixed_precision.set_global_policy(policy)
+
 # ========== Path & Para. ==========
-data_root = "/data_home/user/2025/username/Python/imagedata"
+data_root = "/data_home/user/2025/username/Python/TRAIN"
 cls_ok = "OK"
 cls_esd = "ESD"
 classes = [cls_esd, cls_ok] # Label : esd(0), ok(1)
@@ -38,15 +51,15 @@ def list_labeled_files(root):
     # str -> C:\Users\LGPC\Desktop\ROI_Algo\OK
     # str -> C:\Users\LGPC\Desktop\ROI_Algo\ESD
     
-    ok_files = [os.path.join(p_ok, f) for f in os.listdir(p_ok) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-    esd_files = [os.path.join(p_esd, f) for f in os.listdir(p_esd) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+    ok = [os.path.join(p_ok, f) for f in os.listdir(p_ok) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+    esd = [os.path.join(p_esd, f) for f in os.listdir(p_esd) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
     # list -> OK/ESD 폴더 안의 모든 이미지에 대해 절대경로로 list를 저장
     
-    ok_files.sort()
-    esd_files.sort()
+    ok.sort()
+    esd.sort()
     # 오름차순으로 정렬
     
-    return [(p, 1) for p in ok_files] + [(p, 0) for p in esd_files]
+    return [(p, 1) for p in ok] + [(p, 0) for p in esd]
     # list -> tuple(path, label)로 이루어진 list[tuple(), tuple() ... tuple()]를 저장
     # 전체 데이터에 대해 tuple(esd 이미지 젇대경로, 1), tuple(ok 이미지 절대경로, 0)
 
@@ -134,37 +147,6 @@ def decode_image(path):
         ...,
     '''
     return img # Tensor(256, 256, 3) float32 [0,1]
-    
-def decode_and_orient(path):
-    # tf.py_function은 Tensor를 전달하므로, numpy()로 일반 문자열로 변환
-    path_str = path.numpy().decode("utf-8")
-    with Image.open(path_str) as img:
-        img = ImageOps.exif_transpose(img) # EXIF 정보를 읽고 이미지를 정방향으로 회전
-        img_np = np.array(img) # 다시 Tensorflow에서 처리할 수 있게끔 NumPy 배열로 변환
-    return img_np
-    # np.array(height, width, 3) uint8 [0~255]
-
-def crop_roi(img):
-    h = tf.shape(img)[0] # Tensor(scalr) int32, value : 256
-    w = tf.shape(img)[1] # Tensor(scalr) int32, value : 256
-    x0 = tf.clip_by_value(ROI_X - PAD, 0, w) # Tensor(scalar), int32, value : 0
-    y0 = tf.clip_by_value(ROI_Y - PAD, 0, h) # Tensor(scalar), int32, value : 0
-    x1 = tf.clip_by_value(ROI_X + ROI_W + PAD, 0, w) # Tensor(scalar) int32, value : 256
-    y1 = tf.clip_by_value(ROI_Y + ROI_H + PAD, 0, h) # Tensor(scalar) int32, value : 256
-    roi = img[y0:y1, x0:x1] # Tensor(256, 256, 3) float32 [0,1]
-    '''
-    ([[[1.        , 0.9960785 , 0.87843144],
-        [1.        , 0.9960785 , 0.87843144],
-        [1.        , 0.9960785 , 0.87843144],
-        ...,
-    '''
-    roi = tf.image.resize(roi, (256, 256), method = "bilinear") # Tensor(256, 256, 3) float32 [0,1]
-    '''
-    ([[[1.        , 0.9960785 , 0.87843144],
-        [1.        , 0.9960785 , 0.87843144],
-        [1.        , 0.9960785 , 0.87843144],
-    '''
-    return roi # Tensor(256, 256, 3) float32 [0,1]
 
 def per_image_std(x):
     return tf.image.per_image_standardization(x) # Tensor(256, 256, 3) float32 [0,1]
@@ -260,20 +242,6 @@ def sobel_mag(x01):
         ...,
     '''
     return mag # Tensor(256, 256, 1) float32 [0,1]
-    
-def apply_sobel(image_tensor):
-    """0~1 범위의 RGB Tensor -> 0~1 범위의 Sobel magnitude Tensor"""
-    gray = tf.image.rgb_to_grayscale(image_tensor) # Sobel은 Grayscale image에 적용, Tensor(256, 256, 1) float32 [0, 1]
-    gray_4d = tf.expand_dims(gray, axis = 0)
-    sob = tf.image.sobel_edges(gray_4d)
-    sob = tf.squeeze(sob, axis = 0)
-    gx, gy = sob[..., 0], sob[..., 1]
-    mag = tf.sqrt(gx * gx + gy * gy)
-    mag_min = tf.reduce_min(mag)
-    mag_max = tf.reduce_max(mag)
-    mag = (mag - mag_min) / (mag_max - mag_min + 1e-6)
-    return mag
-    # Tensor(256, 256, 1) float32 [0, 1]
 
 def darkness(x01):
     gray = tf.image.rgb_to_grayscale(x01) # Tensor(256, 256, 1) float32 [0,1]
@@ -285,18 +253,10 @@ def darkness(x01):
         ...,
     '''
 
-def apply_canny(image_tensor_np):
-    img_uint8 = (image_tensor_np * 255).astype(np.uint8)
-    gray_uint8 = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY)
-    canny_edge = cv2.Canny(gray_uint8, 100, 200)
-    canny_edge = canny_edge.astype(np.float32) / 255.0
-    return np.expand_dims(canny_edge, axis = -1)
-    # Tensor(256, 256, 1) float32 [0, 1]
-
-def build_feature_older_form(path, label):
+def build_feature(path, label):
     img = decode_image(path) # Tensor(256, 256, 3) float32 [0,1]
-    img = crop_roi(img) # Tensor(256, 256, 3) float32 [0,1]
     x = per_image_std(img) # Tensor(256, 256, 3) float32 [0,1]
+    
     x01 = normalize01(x) # Tensor(256, 256, 3) float32 [0,1]
 
     feats = [x01] # list -> 각각의 원소들이 Tensor(256, 256, 3) float32 [0,1]인 list
@@ -322,38 +282,7 @@ def build_feature_older_form(path, label):
     # Tensor(256, 256, 5) float32 [0,1]
     # Tensor(scalar) float32, value : 1.0
 
-def build_feature(path, label):
-    img_tensor = tf.py_function(decode_and_orient, [path], tf.uint8) # Tensor(H, W, 3) uint8 [0~255]
-    img_tensor.set_shape([None, None, 3]) # shape 재설정
-    
-    # uint8 [0~255]를 정규화된 float32 [0, 1]로 변환
-    img = tf.image.convert_image_dtype(img_tensor, tf.float32) # Tensor(H, W, 3) float32 [0, 1]
-    x01 = tf.image.resize(img, img_size, method = "bilinear") # resize
-    x01.set_shape((img_size[0], img_size[1], 3)) # (256, 256, 3) reminder
-
-    feats = [x01] # Tensor(256, 256, 3) float32 [0, 1]
-
-    if ADD_SOBEL:
-        sobel_ch = apply_sobel(x01)
-        feats.append(sobel_ch)
-
-    if ADD_CANNY:
-        canny_ch = tf.py_function(
-            func = apply_canny,
-            inp = [x01],
-            Tout = tf.float32)
-        canny_ch.set_shape((img_size[0], img_size[1], 1))
-        feats.append(canny_ch)
-
-    # RGB(3) + Sobel(1) + Canny(1) = 5 Channels
-    feat = tf.concat(feats, axis = -1)
-    # Tensor(256, 256, 5) float32 [0, 1]
-
-    return feat, tf.cast(label, tf.float32)
-    # feat : Tensor(256, 256, 5) float32 [0, 1]
-    # label : Scalar() float32 [0 or 1]
-
-def make_ds_older_form(pairs, batch = BATCH, shuffle = True):
+def make_ds(pairs, batch = BATCH, shuffle = True):
     paths = [p for p,_ in pairs]
     labels = [l for _,l in pairs]
     # list -> paths  : (list)all_pairs의 tuple(이미지 경로, 0 or 1)을 분해하여 (str)이미지 경로들만을 취한 list를 생성
@@ -392,8 +321,12 @@ def make_ds_older_form(pairs, batch = BATCH, shuffle = True):
 
     return ds
 
-train_ds = make_ds(train_list, shuffle = True)
-val_ds = make_ds(val_list, shuffle = False)
+def history_to_df(history):
+    d = history.history
+    df = pd.DataFrame(d)
+    df.insert(0, "epoch", range(1, len(df) + 1))
+    return df
+
 # train_ds, val_ds는 데이터가 아니고 이미지 읽기로부터 Batch 생성까지의 처리를 어떻게 할지 기술한 "설계도"와 같은 tf.data.Dataset 개체
 # model.fit()이 train_ds에 Batch를 요청하여 1개씩 받아서 학습 진행 (=1개 Step)
 # train_ds에 대해 Step이 완료(=모든 Batch 사용)되면 val_ds에 Batch를 요청하여 성능 확인
@@ -401,45 +334,6 @@ val_ds = make_ds(val_list, shuffle = False)
 # train_ds는 이미지 읽기로부터 Batch 생성을 새롭게 진행
 # 따라서 이미지의 순서는 Epoch 1때와는 다르게 shuffle되며 Augmentation도 새롭게 적용됨(단, val_ds는 shuffle, augmentatino 미 진행)
 # 정해진 Epochs만큼 학습을 반복
-
-def make_ds(pairs, batch = BATCH, shuffle = True):
-    paths = [p for p,_ in pairs] # (filepath, label)에서 filepath(...JPG)
-    labels = [l for _,l in pairs] # (filepath, label)에서 label(0 or 1)
-
-    ds = tf.data.Dataset.from_tensor_slices((paths, labels))
-    # 두 list를 from_tensor_slices가 tensor로 묶음. datatype : tf.data.Dataset
-    # list를 tensor로 묶은 객체
-
-    if shuffle:
-        ds = ds.shuffle(len(pairs), seed = SEED, reshuffle_each_iteration = True)
-
-    ds = ds.map(build_feature, num_parallel_calls = AUTOTUNE)
-    # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
-
-    def augmentation(x, y):
-        # x : Tensor(256, 256, 5) float32 [0, 1] 전체에 Augmentation 적용. 단, train_ds만 적용함.
-        x = tf.image.random_brightness(x, max_delta = 0.05)
-        x = tf.image.random_contrast(x, 0.9, 1.1)
-        k = tf.random.uniform(shape = [], minval = 0, maxval = 4, dtype = tf.int32)
-        x = tf.image.rot90(x, k = k)
-        return x, y
-        # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
-
-    if shuffle:
-        ds = ds.map(augmentation, num_parallel_calls = AUTOTUNE)
-        # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
-
-    ds = ds.batch(batch).prefetch(AUTOTUNE)
-    # x(feat) : Tensor(16, 256, 256, 5) float32 [0, 1] -> train은 shuffle=True라서 aug도 진행
-    # y(label) : Scalar(20, ) float32 [0 or 1]              val은 shuffle=False라서 aug를 skip
-
-    return ds
-    # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
-
-def history_to_df(history):
-    df = pd.DataFrame(history.history)
-    df.insert(0, "epoch", range(1, len(df) + 1))
-    return df
 
 train_ds = make_ds(train_list, shuffle = True)
 # (feat : Tensor(256, 256, 5) float32 [0, 1], label : Scalar() float32 [0 or 1])
