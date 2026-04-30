@@ -351,30 +351,22 @@ class_weight = {i: float(N) / (K * counts[i]) for i in range(K)}
 print("Class_Weight : ", class_weight)
 
 
-# ========== Custom Layer 정의(Lambda 대체) ==========
-class PreprocessingLayer(layers.Layer):
-    def __init__(self, backbone_name, **kwargs):
-        super().__init__(**kwargs)
-        self.backbone_name = backbone_name
-        # 각 Backbone에 맞는 전처리 함수를 미리 할당
-        if backbone_name == 'VGG16':
-            self.preprocess_fn = tf.keras.applications.vgg16.preprocess_input
-        elif backbone_name == 'ResNet50V2':
-            self.preprocess_fn = tf.keras.applications.resnet_v2.preprocess_input
-        elif backbone_name == 'EfficientNetV2S':
-            self.preprocess_fn = tf.keras.applications.efficientnet_v2.preprocess_input
-        else:
-            raise ValueError("Unsupported backbone name")
+# ========== Callbacks ==========
+work_dir = "/data_home/user/2025/username/Python/EMG_MODEL"
+ckpt_stage1 = os.path.join(work_dir, f"Stage1.keras")
+ckpt_stage2 = os.path.join(work_dir, f"Stage2.keras")
 
-    def call(self, inputs):
-        scaled_inputs = inputs * 255.0
-        return self.preprocess_fn(scaled_inputs)
+callbacks1 = [
+    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
+    EarlyStopping(monitor="val_accuracy", patience=3, mode="max", restore_best_weights=True),
+    ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-6)
+]
 
-    # get_config는 모델 저장/로드를 위해 필수
-    def get_config(self):
-        config = super().get_config()
-        config.update({"backbone_name": self.backbone_name})
-        return config
+callbacks2 = [
+    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
+    EarlyStopping(monitor="val_accuracy", patience=3, mode="max", restore_best_weights=True),
+    ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-6)
+]
 
 # ========== Channel Mapper (N -> 3), Backbone ==========
 sample_x, _ = next(iter(train_ds.take(1)))
@@ -390,106 +382,79 @@ sample_x, _ = next(iter(train_ds.take(1)))
 in_ch = int(sample_x.shape[-1])
 print("Input channels : ", in_ch)
 
-def build_model(backbone_name="VGG16"):
-    inp = layers.Input(shape=(img_size[0], img_size[1], in_ch), name="multi_channel_input")
+inp = layers.Input(shape = (img_size[0], img_size[1], in_ch), name = "multi_input")
 
-    # Channel Mapper: N channels -> 3 channels
-    x = layers.Conv2D(16, 1, padding="same", activation="relu", name="ch_mapper_16")(inp)
-    x = layers.Conv2D(3, 1, padding="same", activation=None, name="ch_mapper_3")(x)
-    preproc_layer = PreprocessingLayer(backbone_name, name = f"{backbone_name.lower()}_preproc")
+x = layers.Conv2D(16, 1, padding = "same", activation = "relu", name = "ch_mapper_16")(inp)
+x = layers.Conv2D(3, 1, padding = "same", activation = None, name = "ch_mapper_3")(x)
 
-    # Backbone별 전용 전처리 레이어를 모델 내부에 적용
-    if backbone_name == "VGG16":
-        base = VGG16(weights="imagenet", include_top=False, input_shape=(img_size[0], img_size[1], 3))
-    elif backbone_name == "ResNet50V2":
-        base = ResNet50V2(weights="imagenet", include_top=False, input_shape=(img_size[0], img_size[1], 3))
-    elif backbone_name == "EfficientNetV2S":
-        base = EfficientNetV2S(weights="imagenet", include_top=False, input_shape=(img_size[0], img_size[1], 3))
-        
-    x = preproc_layer(x)
-    y = base(x)
+base = ResNet50V2(weights = "imagenet", include_top = False, input_shape = (img_size[0], img_size[1], 3))
+y = base(x)
 
     # Custom Head
-    h = layers.GlobalAveragePooling2D()(y)
-    h = layers.Dropout(0.3)(h)
-    h = layers.Dense(128, activation="relu")(h)
-    h = layers.Dropout(0.3)(h)
-    out = layers.Dense(1, activation="sigmoid")(h)
+h = layers.GlobalAveragePooling2D()(y)
+h = layers.Dropout(0.3)(h)
+h = layers.Dense(256, activation = "relu", kernel_regularizer = tf.keras.regularizers.l2(1e-4))(h)
+h = layers.Dropout(0.3)(h)
+out = layers.Dense(1, "sigmoid", dtype = "float32")(h)
 
-    model = models.Model(inputs=inp, outputs=out)
-    return model, base
-
-# 사용할 Backbone 선택: VGG16, ResNet50V2, EfficientNetV2S
-BACKBONE = "VGG16"
-model, base_model = build_model(BACKBONE)
-# model.summary() -> Summary 확인 필요 시 주석 해제
-
+model = models.Model(inputs = inp, outputs = out)
 
 # ========== Stage 1: Fine-tuning Head ==========
 # Backbone은 고정하고 Channel Mapper와 Head만 학습
-base_model.trainable = False
+for layer in base.layers:
+    layer.trainable = False
+
+model.get_layer("ch_mapper_16").trainable = True
+model.get_layer("ch_mapper_3").trainable = True
 
 model.compile(
-    optimizer=Adam(1e-3),
-    loss="binary_crossentropy",
-    metrics=["accuracy"]
+    optimizer = Adam(1e-3),
+    loss = "binary_crossentropy",
+    metrics = ["accuracy"]
 )
 
-work_dir = data_root
-ckpt_path = os.path.join(work_dir, f"Model_{BACKBONE}_best.keras")
-
-callbacks = [
-    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
-    EarlyStopping(monitor="val_accuracy", patience=5, mode="max", restore_best_weights=True),
-    ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-6)
-]
-
-print("\n--- Stage 1: Training Head ---")
 history1 = model.fit(
     train_ds,
-    epochs=EPOCHS_STAGE1,
-    validation_data=val_ds,
-    class_weight=class_weight,
-    callbacks=callbacks
+    epochs = EPOCHS_STAGE1,
+    validation_data = val_ds,
+    class_weight = class_weight,
+    callbacks = callbacks1
 )
 
+print("Training Complete")
+
 # ========== Stage 2: Fine-tuning Backbone ==========
-print("\n--- Stage 2: Fine-tuning Backbone ---")
+def unfreeze_top_resnet(base_model, prefix = "conv5_"):
+    for layer in base_model.layers:
+        if layer.name.startswith(prefix):
+            if isinstance(layer, tf.keras.layers.BatchNormalization):
+                layer.trainable = False
+            else:
+                layer.trainable = True
+        else:
+            layer.trainable = False
+            
+unfreeze_top_resnet(base)
 
-# Backbone 모델의 동결 해제
-base_model.trainable = True
-
-# (참고) ResNet/EfficientNet 등 BatchNormalization 레이어가 있는 모델은
-# BN 레이어는 계속 동결하는 것이 안정적일 수 있습니다. (VGG16은 해당 없음)
-if BACKBONE != "VGG16":
-    for layer in base_model.layers:
-        if isinstance(layer, layers.BatchNormalization):
-            layer.trainable = False
+model.get_layer("ch_mapper_16").trainable = True
+model.get_layer("ch_mapper_3").trainable = True
 
 # 미세 조정을 위해 더 낮은 학습률로 모델을 다시 컴파일
 model.compile(
-    optimizer=Adam(1e-5), # Stage 1 (1e-3) 보다 훨씬 낮은 학습률 사용
-    loss="binary_crossentropy",
-    metrics=["accuracy"]
+    optimizer = Adam(1e-4),
+    loss = "binary_crossentropy",
+    metrics = ["accuracy"]
 )
 
-# Stage 2용 콜백 (필요시 EarlyStopping patience 등을 조절할 수 있음)
-callbacks_stage2 = [
-    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
-    EarlyStopping(monitor="val_accuracy", patience=5, mode="max", restore_best_weights=True),
-    ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-7) # min_lr을 더 낮출 수 있음
-]
-
-# Stage 2 학습 실행
 history2 = model.fit(
     train_ds,
-    epochs=EPOCHS_STAGE1 + EPOCHS_STAGE2, # 총 Epoch 횟수
-    initial_epoch=EPOCHS_STAGE1,       # Stage 1이 끝난 시점부터 시작
-    validation_data=val_ds,
-    class_weight=class_weight,
-    callbacks=callbacks_stage2
+    epochs = EPOCHS_STAGE2,
+    validation_data = val_ds,
+    class_weight = class_weight,
+    callbacks = callbacks2
 )
 
+print("Training Complete")
 
 '''
 # ========== Save History and Final Model ==========
