@@ -261,10 +261,10 @@ def build_feature(path, label):
 
     feats = [x01] # list -> 각각의 원소들이 Tensor(256, 256, 3) float32 [0,1]인 list
 
-    if ADD_EDGE:
+    if feats:
         feats.append(sobel_mag(x01)) # Tensor(256, 256, 1) float32 [0,1]
 
-    if ADD_DARK:
+    if feats:
         feats.append(darkness(x01)) # Tensor(256, 256, 1) float32 [0,1]
 
     feat = tf.concat(feats, axis = -1) # Tensor(256, 256, 5) float32 [0,1]
@@ -357,13 +357,13 @@ ckpt_stage1 = os.path.join(work_dir, f"Stage1.keras")
 ckpt_stage2 = os.path.join(work_dir, f"Stage2.keras")
 
 callbacks1 = [
-    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
+    ModelCheckpoint(ckpt_stage1, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
     EarlyStopping(monitor="val_accuracy", patience=3, mode="max", restore_best_weights=True),
     ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-6)
 ]
 
 callbacks2 = [
-    ModelCheckpoint(ckpt_path, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
+    ModelCheckpoint(ckpt_stage2, monitor="val_accuracy", save_best_only=True, mode="max", verbose=1),
     EarlyStopping(monitor="val_accuracy", patience=3, mode="max", restore_best_weights=True),
     ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, verbose=1, min_lr=1e-6)
 ]
@@ -441,17 +441,17 @@ model.get_layer("ch_mapper_3").trainable = True
 
 # 미세 조정을 위해 더 낮은 학습률로 모델을 다시 컴파일
 model.compile(
-    optimizer = Adam(1e-4),
-    loss = "binary_crossentropy",
-    metrics = ["accuracy"]
+    optimizer = Adam(1e-4),
+    loss = "binary_crossentropy",
+    metrics = ["accuracy"]
 )
 
 history2 = model.fit(
-    train_ds,
-    epochs = EPOCHS_STAGE2,
-    validation_data = val_ds,
-    class_weight = class_weight,
-    callbacks = callbacks2
+    train_ds,
+    epochs = EPOCHS_STAGE2,
+    validation_data = val_ds,
+    class_weight = class_weight,
+    callbacks = callbacks2
 )
 
 print("Training Complete")
