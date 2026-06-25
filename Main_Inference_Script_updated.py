@@ -9,10 +9,17 @@ import numpy as np
 import cv2
 from PIL import Image, ImageOps
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 warnings.filterwarnings('ignore')
 
 import tensorflow as tf
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    tf.config.experimental.set_memory_growth(gpus[0], True)
+    tf.config.optimizer.set_jit(False)
+
 from tensorflow.keras.models import load_model
 from tqdm import tqdm
 
@@ -389,6 +396,9 @@ def main():
             
             if tensor is None:
                 continue
+                
+            if IMG_SIZE != (256, 256):
+                tensor = tf.image.resize(tensor, [256, 256], method = "lanczos3")
 
             batch_tensors.append(tensor)
             # [수정된 부분] (1) batch_info에 best_score 추가
