@@ -223,7 +223,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metal-darker", action="store_true", help="Use when metal is darker than background")
     parser.add_argument("--allow-other-size", action="store_true")
     parser.add_argument("--fail-fast", action="store_true")
-    return parser.parse_args()
+    return parser.parse_known_args()[0]
 
 
 def main() -> None:
