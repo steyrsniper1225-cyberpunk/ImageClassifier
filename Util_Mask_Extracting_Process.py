@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
+from tqdm.auto import tqdm
 
 import cv2
 import numpy as np
@@ -214,8 +215,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Extract metal masks and write human-review visualizations."
     )
-    parser.add_argument("--input", required=True, help="Image file or folder")
-    parser.add_argument("--output", required=True, help="Output folder")
+    parser.add_argument("--input", default = "write_input_image_folder")
+    parser.add_argument("--output", default = "write_output_image_folder")
     parser.add_argument("--recursive", action="store_true", help="Search subfolders")
     parser.add_argument("--threshold", type=float, default=0.50, help="Soft-mask threshold [0, 1]")
     parser.add_argument("--color-blur-sigma", type=float, default=0.8)
@@ -245,14 +246,22 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     input_root = source if source.is_dir() else None
     rows: list[dict[str, object]] = []
-    for index, path in enumerate(images, start=1):
+    
+    for path in tqdm(
+        images,
+        desc = "Mask Extracting : ",
+        unit = "image",
+    ):
         try:
             row = process_image(path, output_dir, config, input_root)
             rows.append(row)
-            print(f"[{index}/{len(images)}] OK: {path.name}")
+            
         except Exception as exc:
+            tqdm.write(f"ERROR : {path.name} - {exc}")
+            
             if args.fail_fast:
                 raise
+                
             rows.append({
                 "source_path": str(path.resolve()),
                 "filename": path.name,
