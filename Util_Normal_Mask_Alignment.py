@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
+from tqdm import tqdm
 
 import cv2
 import numpy as np
@@ -428,7 +429,9 @@ def main() -> None:
     )
     rows: list[dict[str, object]] = []
     best_medoid: tuple[float, np.ndarray] | None = None
-    for index, path in enumerate(paths):
+    for index, path in enumerate(
+        tqdm(paths, desc="Aligining masks", unit="mask")
+      ):
         query = load_soft_mask(path)
         result = align_mask(query, reference, anchor, config)
         stem = _safe_stem(path, input_root)
@@ -470,7 +473,7 @@ def main() -> None:
         )
         if best_medoid is None or result.full_rmse < best_medoid[0]:
             best_medoid = (result.full_rmse, result.aligned_soft.copy())
-        print(f"[{index + 1}/{len(paths)}] {path.name} anchor_rmse={result.anchor_rmse:.6f}")
+        # print(f"[{index + 1}/{len(paths)}] {path.name} anchor_rmse={result.anchor_rmse:.6f}")
 
     assert best_medoid is not None
     save_soft_mask(best_medoid[1], output / "reference" / "reference_medoid_actual.png")
