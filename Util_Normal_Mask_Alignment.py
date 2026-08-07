@@ -370,7 +370,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reference-sample-size", type=int, default=256)
     parser.add_argument("--reference-iterations", type=int, default=1)
     parser.add_argument("--review-count", type=int, default=40)
-    return parser.parse_args()
+    return parser.parse_known_args()[0]
 
 
 def validate_config(config: AlignmentConfig) -> None:
