@@ -1,0 +1,37 @@
+{
+  "version": "paired_defect_preservation_v001",
+  "coordinate_system": "COMMON_V1 canonical 0-degree, x right, y down, pixels",
+  "instructions": "Replace the example coordinates after viewing the frozen reference mask. Every shape must overlap metal and cross or approach the defect-prone boundary.",
+  "candidate_gate": {
+    "min_p05_operational_preservation": 0.90,
+    "max_p95_shift_drift_px": 0.50,
+    "max_p95_scale_edge_drift_px": 0.50,
+    "max_rotation_change_count": 0
+  },
+  "defects": [
+    {
+      "id": "tip_retreat_1px_example",
+      "shape": "rectangle",
+      "coordinates": {"x": 130, "y": 75, "width": 1, "height": 12},
+      "strength": 1.0,
+      "edge_sigma_px": 0.8,
+      "evaluation_margin_px": 5
+    },
+    {
+      "id": "small_boundary_notch_example",
+      "shape": "ellipse",
+      "coordinates": {"center_x": 190, "center_y": 100, "width": 5, "height": 5},
+      "strength": 1.0,
+      "edge_sigma_px": 0.8,
+      "evaluation_margin_px": 5
+    },
+    {
+      "id": "thin_long_notch_example",
+      "shape": "polygon",
+      "coordinates": {"points": [[188, 130], [191, 130], [191, 151], [188, 151]]},
+      "strength": 1.0,
+      "edge_sigma_px": 0.8,
+      "evaluation_margin_px": 5
+    }
+  ]
+}
