@@ -129,6 +129,26 @@ def warp_soft(mask: np.ndarray, transform: Transform, output_shape: tuple[int, i
     )
 
 
+def inverse_warp_soft(
+    mask: np.ndarray,
+    transform: Transform,
+    output_shape: tuple[int, int],
+) -> np.ndarray:
+    height, width = output_shape
+
+    matrix = _matrix_for_transform(output_shape, transform)
+    inverse_matrix = cv2.invertAffineTransform(matrix)
+
+    return cv2.warpAffine(
+        mask.astype(np.float32),
+        inverse_matrix,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0.0,
+    )
+
+
 def _weighted_rmse(reference: np.ndarray, candidate: np.ndarray, weights: np.ndarray) -> float:
     denominator = float(weights.sum())
     if denominator <= 0:
