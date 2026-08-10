@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from tqdm import tqdm
 
 import cv2
 import numpy as np
@@ -368,7 +369,10 @@ def main() -> None:
 
     rows: list[dict[str, Any]] = []
     reviews: list[tuple[float, dict[str, Any], dict[str, np.ndarray]]] = []
-    for image_index, path in enumerate(paths, start=1):
+    for image_index, path in enumerate(
+        tqdm(paths, desc = "Processing masks", unit = "mask"),
+        start = 1,
+        ):
         normal = load_soft_mask(path)
         if normal.shape != reference.shape:
             raise ValueError(f"Shape mismatch: {path} has {normal.shape}, expected {reference.shape}")
