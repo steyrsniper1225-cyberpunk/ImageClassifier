@@ -336,7 +336,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-shift-px", type=float, default=12.0)
     parser.add_argument("--search-size", type=int, default=64)
     parser.add_argument("--binary-threshold", type=float, default=0.50)
-    return parser.parse_args()
+    return parser.parse_args()[0]
 
 
 def main() -> None:
