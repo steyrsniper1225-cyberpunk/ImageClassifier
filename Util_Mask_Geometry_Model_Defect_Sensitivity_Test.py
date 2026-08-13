@@ -327,6 +327,8 @@ def save_review(artifacts: dict[str, np.ndarray], row: dict[str, Any], path: Pat
         ("Normal missing beyond tolerance", _heat_rgb(artifacts["normal_missing"])),
         ("Defect missing beyond tolerance", _heat_rgb(artifacts["defect_missing"])),
         ("Added missing beyond tolerance", _heat_rgb(artifacts["added_missing"])),
+        ("Median missing beyond tolerance", _heatmap_rgb(artifacts["median_missing"])),
+        ("Robust-Z missing", _heatmap_rgb(artifacts["defect_robust_z_missing"], gain=0.2)),
     ]
 
     overlay = _gray_rgb(artifacts["normal"]).astype(np.float32)
