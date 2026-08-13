@@ -236,11 +236,6 @@ def evaluate_sensitivity(
         "defect_id": spec.defect_id,
         "shape": spec.shape,
         "injected_removed_energy": injected_removed_energy,
-        "robust_z_max": robust_z_max,
-        "robust_z_sum": robust_z_sum,
-        "robust_z_area_ge_threshold": robust_z_area_ge_threshold,
-        "robust_z_largest_component_sum": robust_z_largest_component_sum,
-        "robust_z_largest_component_area": robust_z_largest_component_area,
     }
 
     score_fields = (
