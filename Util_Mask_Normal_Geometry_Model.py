@@ -402,6 +402,11 @@ def main() -> None:
         "center_rmse", "mean_robust_z", "p99_robust_z", "missing_sum",
         "missing_largest_component_sum", "extra_sum", "extra_largest_component_sum",
         "transition_fraction",
+        "robust_z_max",
+        "robust_z_sum",
+        "robust_z_area_ge_threshold",
+        "robust_z_largest_component_sum",
+        "robust_z_largest_compinent_area",
     ]
     metrics_by_role: dict[str, Any] = {}
     for role in sorted({str(row["dataset_role"]) for row in rows}):
