@@ -298,6 +298,10 @@ def evaluate_sensitivity(
         "normal_missing": normal_missing,
         "defect_missing": defect_missing,
         "added_missing": added_missing,
+        "median_missing": median_missing,
+        "normal_robust_z_missing": normal_robust_z_missing,
+        "defect_robust_z_missing": defect_robust_z_missing,
+        "delta_robust_z_missing": delta_robust_z_missing,
         "zone": zone.astype(np.float32),
     }
     return row, artifacts
