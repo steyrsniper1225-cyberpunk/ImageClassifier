@@ -123,6 +123,32 @@ def _largest_component(values: np.ndarray, threshold: float) -> tuple[int, float
     return int(selected.sum()), float(values[selected].sum())
 
 
+def _robust_z_global_metrics(
+    mask: np.ndarray,
+    model: GeometryModel,
+    threshold: float,
+) -> dict[str, float | int]:
+    robust_z_missing = np.maximum(
+        (model.median - mask) / np.maximum(model.robust_sigma, 1e-6),
+        0.0,
+    )
+
+    largest_area, largest_sum = _largest_component(
+        robust_z_missing,
+        threshold,
+    )
+
+    return {
+        "robust_z_max": float(robust_z_missing.max()),
+        "robust_z_sum": float(robust_z_missing.sum()),
+        "robust_z_area_ge_threshold": int(
+            np.count_nonzero(robust_z_missing >= threshold)
+        ),
+        "robust_z_largest_component_sum": largest_sum,
+        "robust_z_largest_component_area": largest_area,
+    }
+
+
 def score_mask(mask: np.ndarray, model: GeometryModel, config: ModelConfig) -> dict[str, float | int]:
     if mask.shape != model.median.shape:
         raise ValueError(f"Mask shape {mask.shape} does not match model {model.median.shape}")
