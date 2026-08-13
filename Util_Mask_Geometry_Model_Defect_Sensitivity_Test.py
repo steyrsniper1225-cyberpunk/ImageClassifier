@@ -273,6 +273,14 @@ def evaluate_sensitivity(
     ):
         for name, value in metrics.items():
             row[f"{prefix}_{name}"] = value
+            
+    for prefix, metrics in (
+        ("normal_robust_z", normal_robust_z),
+        ("defect_robust_z", defect_robust_z),
+        ("delta_robust_z", delta_robust_z),
+    ):
+        for name, value in metrics.items():
+            row[f"{prefix}_{name}"] = value
 
     row["delta_zone_missing_sum"] = float(defect_zone["sum"]) - float(normal_zone["sum"])
     row["delta_zone_missing_max"] = float(defect_zone["max"]) - float(normal_zone["max"])
