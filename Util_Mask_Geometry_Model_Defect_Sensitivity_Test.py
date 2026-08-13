@@ -188,21 +188,44 @@ def evaluate_sensitivity(
     normal_missing = np.maximum(model.lower - normal, 0.0)
     defect_missing = np.maximum(model.lower - defective, 0.0)
     added_missing = np.maximum(defect_missing - normal_missing, 0.0)
+    
+    median_missing = np.maximum(model.median - defective, 0.0)
+    
+    normal_robust_z_missing = np.maximum(
+        (model.median - normal) / np.maximum(model.robust_sigma, 1e-6),
+        0.0,
+    )
+    
+    defect_robust_z_missing = np.maximum(
+        (model.median - defective) / np.maximum(model.robust_sigma, 1e-6),
+        0.0,
+    )
+    
+    delta_robust_z_missing = np.maximum(
+        defect_robust_z_missing - normal_robust_z_missing,
+        0.0,
+    )
+    
     zone = evaluation_zone(alpha, spec.evaluation_margin_px)
     
     robust_z_threshold = 3.0
-    robust_z_zone = np.where(zone, robust_z_missing, 0.0).astype(np.float32)
-    robust_z_values = robust_z_missing[zone]
-    robust_z_max = float(robust_z_values.max(initial=0.0))
-    robust_z_sum = float(robust_z_values.sum())
-    robust_z_area_ge_threshold = int(
-        np.count_nonzero(robust_z_values >= robust_z_threshold)
+    
+    normal_robust_z = _robust_z_metrics(
+        normal_robust_z_missing,
+        zone,
+        robust_z_threshold,
     )
-    robust_z_largest_component_area, robust_z_largest_component_sum = (
-        _largest_component(
-            robust_z_zone,
-            robust_z_threshold,
-        )
+    
+    defect_robust_z = _robust_z_metrics(
+        defect_robust_z_missing,
+        zone,
+        robust_z_threshold,
+    )
+    
+    delta_robust_z = _robust_z_metrics(
+        delta_robust_z_missing,
+        zone,
+        robust_z_threshold,
     )
     
     normal_zone = _zone_metrics(normal_missing, zone, config.residual_pixel_threshold)
