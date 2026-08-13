@@ -382,6 +382,12 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "defect_zone_missing_area",
         "defect_zone_missing_largest_component_sum",
         "defect_zone_missing_largest_component_area",
+        "normal_robust_z_largest_component_sum",
+        "defect_robust_z_largest_component_sum",
+        "delta_robust_z_largest_component_sum",
+        "normal_robust_z_max",
+        "defect_robust_z_max",
+        "delta_robust_z_max",
     )
 
     by_defect: dict[str, Any] = {}
