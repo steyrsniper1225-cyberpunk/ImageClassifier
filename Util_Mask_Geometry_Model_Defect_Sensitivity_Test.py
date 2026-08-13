@@ -170,7 +170,22 @@ def evaluate_sensitivity(
     defect_missing = np.maximum(model.lower - defective, 0.0)
     added_missing = np.maximum(defect_missing - normal_missing, 0.0)
     zone = evaluation_zone(alpha, spec.evaluation_margin_px)
-
+    
+    robust_z_threshold = 3.0
+    robust_z_zone = np.where(zone, robust_z_missing, 0.0).astype(np.float32)
+    robust_z_values = robust_z_missing[zone]
+    robust_z_max = float(robust_z_values.max(initial=0.0))
+    robust_z_sum = float(robust_z_values.sum())
+    robust_z_area_ge_threshold = int(
+        np.count_nonzero(robust_z_values >= robust_z_threshold)
+    )
+    robust_z_largest_component_area, robust_z_largest_component_sum = (
+        _largest_component(
+            robust_z_zone,
+            robust_z_threshold,
+        )
+    )
+    
     normal_zone = _zone_metrics(normal_missing, zone, config.residual_pixel_threshold)
     defect_zone = _zone_metrics(defect_missing, zone, config.residual_pixel_threshold)
     added_zone = _zone_metrics(added_missing, zone, config.residual_pixel_threshold)
