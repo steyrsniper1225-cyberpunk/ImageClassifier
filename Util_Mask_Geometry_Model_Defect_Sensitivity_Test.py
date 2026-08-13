@@ -128,6 +128,25 @@ def _largest_component(values: np.ndarray, threshold: float) -> tuple[int, float
     return int(selected.sum()), float(values[selected].sum())
 
 
+def _robust_z_metrics(
+    robust_z_missing: np.ndarray,
+    zone: np.ndarray,
+    threshold: float,
+) -> dict[str, float | int]:
+    masked = np.where(zone, robust_z_missing, 0.0).astype(np.float32)
+    values = robust_z_missing[zone]
+
+    largest_area, largest_sum = _largest_component(masked, threshold)
+
+    return {
+        "max": float(values.max(initial=0.0)),
+        "sum": float(values.sum()),
+        "area_ge_threshold": int(np.count_nonzero(values >= threshold)),
+        "largest_component_sum": largest_sum,
+        "largest_component_area": largest_area,
+    }
+
+
 def _zone_metrics(
     missing: np.ndarray,
     zone: np.ndarray,
