@@ -359,12 +359,20 @@ def main() -> None:
             continue
         for index, path in enumerate(paths, start=1):
             mask = load_soft_mask(path)
+            
+            robust_metrics = _robust_z_global_metrics(
+                mask,
+                model,
+                threshold=3.0,
+            )
+            
             row = {
                 "dataset_role": role,
                 "source_name": path.name,
                 "source_relative_path": str(path.relative_to(root)),
                 "source_sha256": _sha256(path),
                 **score_mask(mask, model, config),
+                **robust_metrics,
             }
             rows.append(row)
             row_paths.append(path)
