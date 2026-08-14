@@ -126,23 +126,42 @@ def _largest_component(values: np.ndarray, threshold: float) -> tuple[int, float
 def _robust_z_global_metrics(
     mask: np.ndarray,
     model: GeometryModel,
+    defect_prone_mask: np.ndarray,
     threshold: float,
 ) -> dict[str, float | int]:
+    if defect_prone_mask.shape != mask.shape:
+        raise ValueError(
+            f"Defect-prone mask shape mismatch: "
+            f"{defect_prone_mask.shape} vs {mask.shape}"
+        )
+
+    zone = defect_prone_mask.astype(bool)
+
     robust_z_missing = np.maximum(
-        (model.median - mask) / np.maximum(model.robust_sigma, 1e-6),
+        (model.median - mask)
+        / np.maximum(model.robust_sigma, 1e-6),
         0.0,
     )
 
-    largest_area, largest_sum = _largest_component(
+    # Defect-prone 영역 밖은 완전히 제거
+    masked_robust_z = np.where(
+        zone,
         robust_z_missing,
+        0.0,
+    ).astype(np.float32)
+
+    values = robust_z_missing[zone]
+
+    largest_area, largest_sum = _largest_component(
+        masked_robust_z,
         threshold,
     )
 
     return {
-        "robust_z_max": float(robust_z_missing.max()),
-        "robust_z_sum": float(robust_z_missing.sum()),
+        "robust_z_max": float(values.max(initial=0.0)),
+        "robust_z_sum": float(values.sum()),
         "robust_z_area_ge_threshold": int(
-            np.count_nonzero(robust_z_missing >= threshold)
+            np.count_nonzero(values >= threshold)
         ),
         "robust_z_largest_component_sum": largest_sum,
         "robust_z_largest_component_area": largest_area,
