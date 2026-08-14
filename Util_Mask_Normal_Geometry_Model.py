@@ -374,6 +374,25 @@ def main() -> None:
 
     rows: list[dict[str, Any]] = []
     row_paths: list[Path] = []
+    
+    defect_prone_mask = np.load(
+        args.defect_prone_mask
+    ).astype(bool)
+    
+    if defect_prone_mask.shape != model.median.shape:
+        raise ValueError(
+            f"Defect-prone mask shape mismatch: "
+            f"{defect_prone_mask.shape} vs {model.median.shape}"
+        )
+    
+    if not defect_prone_mask.any():
+        raise ValueError("Defect-prone mask is empty")
+    
+    print(
+        "Defect-prone pixels:",
+        int(defect_prone_mask.sum()),
+    )
+    
     for role, root, paths in (("FIT", args.fit_soft_dir, fit_paths), ("QA", args.qa_soft_dir, qa_paths)):
         if root is None:
             continue
