@@ -402,6 +402,7 @@ def main() -> None:
             robust_metrics = _robust_z_global_metrics(
                 mask,
                 model,
+                defect_prone_mask,
                 threshold=3.0,
             )
             
