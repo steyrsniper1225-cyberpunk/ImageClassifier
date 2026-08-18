@@ -168,6 +168,40 @@ def _robust_z_global_metrics(
     }
 
 
+def _load_defect_zones(
+    zone_root: Path,
+    expected_shape: tuple[int, int],
+) -> dict[str, np.ndarray]:
+
+    zones: dict[str, np.ndarray] = {}
+
+    for path in sorted(zone_root.rglob("*.npy")):
+        zone = np.load(
+            path,
+            allow_pickle=False,
+        ).astype(bool)
+
+        if zone.shape != expected_shape:
+            raise ValueError(
+                f"Zone shape mismatch: {path} "
+                f"{zone.shape} vs {expected_shape}"
+            )
+
+        if not zone.any():
+            raise ValueError(
+                f"Empty defect zone: {path}"
+            )
+
+        zones[path.stem] = zone
+
+    if not zones:
+        raise ValueError(
+            f"No defect zone masks found: {zone_root}"
+        )
+
+    return zones
+    
+
 def score_mask(mask: np.ndarray, model: GeometryModel, config: ModelConfig) -> dict[str, float | int]:
     if mask.shape != model.median.shape:
         raise ValueError(f"Mask shape {mask.shape} does not match model {model.median.shape}")
