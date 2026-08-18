@@ -487,7 +487,7 @@ def main() -> None:
             args.output_dir / "outlier_reviews_worst" / f"{review_index:03d}_{row['dataset_role']}_{safe}.png",
         )
 
-    metric_names = [
+    base_metric_names = [
         "center_rmse", "mean_robust_z", "p99_robust_z", "missing_sum",
         "missing_largest_component_sum", "extra_sum", "extra_largest_component_sum",
         "transition_fraction",
@@ -495,9 +495,30 @@ def main() -> None:
         "robust_z_sum",
         "robust_z_area_ge_threshold",
         "robust_z_largest_component_sum",
-        "robust_z_largest_compinent_area",
+        "robust_z_largest_component_area",
     ]
+    
+    zone_metric_names = []
+
+    for zone_name in defect_zones:
+        for metric_name in (
+            "max",
+            "sum",
+            "area_ge_threshold",
+            "largest_component_sum",
+            "largest_component_area",
+        ):
+            zone_metric_names.append(
+                f"{zone_name}_robust_z_{metric_name}"
+            )
+    
+    metric_names = (
+        base_metric_names
+        + zone_metric_names
+    )
+    
     metrics_by_role: dict[str, Any] = {}
+    
     for role in sorted({str(row["dataset_role"]) for row in rows}):
         subset = [row for row in rows if row["dataset_role"] == role]
         metrics_by_role[role] = {
