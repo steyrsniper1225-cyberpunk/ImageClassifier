@@ -452,7 +452,7 @@ def main() -> None:
             
                 for metric_name, value in metrics.items():
                     zone_metrics[
-                        f"{zone_name}_robust_z_{metric_name}"
+                        f"{zone_name}_{metric_name}"
                     ] = value
             
             row = {
@@ -497,14 +497,14 @@ def main() -> None:
 
     for zone_name in defect_zones:
         for metric_name in (
-            "max",
-            "sum",
-            "area_ge_threshold",
-            "largest_component_sum",
-            "largest_component_area",
+            "robust_z_max",
+            "robust_z_sum",
+            "robust_z_area_ge_threshold",
+            "robust_z_largest_component_sum",
+            "robust_z_largest_component_area",
         ):
             zone_metric_names.append(
-                f"{zone_name}_robust_z_{metric_name}"
+                f"{zone_name}_{metric_name}"
             )
     
     metric_names = (
