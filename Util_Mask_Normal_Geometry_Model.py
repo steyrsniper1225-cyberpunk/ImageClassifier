@@ -439,12 +439,21 @@ def main() -> None:
         for index, path in enumerate(paths, start=1):
             mask = load_soft_mask(path)
             
-            robust_metrics = _robust_z_global_metrics(
-                mask,
-                model,
-                defect_prone_mask,
-                threshold=3.0,
-            )
+            zone_metrics: dict[str, float | int] = {}
+
+            for zone_name, zone_mask in defect_zones.items():
+            
+                metrics = _robust_z_zone_metrics(
+                    mask,
+                    model,
+                    zone_mask,
+                    threshold=3.0,
+                )
+            
+                for metric_name, value in metrics.items():
+                    zone_metrics[
+                        f"{zone_name}_robust_z_{metric_name}"
+                    ] = value
             
             row = {
                 "dataset_role": role,
@@ -452,7 +461,7 @@ def main() -> None:
                 "source_relative_path": str(path.relative_to(root)),
                 "source_sha256": _sha256(path),
                 **score_mask(mask, model, config),
-                **robust_metrics,
+                **zone_metrics,
             }
             rows.append(row)
             row_paths.append(path)
