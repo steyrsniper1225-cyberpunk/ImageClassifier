@@ -428,6 +428,11 @@ def main() -> None:
         int(defect_prone_mask.sum()),
     )
     
+    defect_zones = _load_defect_zones(
+        args.defect_zone_dir,
+        model.median.shape,
+    )
+    
     for role, root, paths in (("FIT", args.fit_soft_dir, fit_paths), ("QA", args.qa_soft_dir, qa_paths)):
         if root is None:
             continue
