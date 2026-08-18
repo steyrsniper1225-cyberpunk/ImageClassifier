@@ -76,6 +76,49 @@ def _load_array(model_dir: Path, stem: str) -> np.ndarray:
     return array
 
 
+def _load_defect_zones(
+    zones_dir: Path,
+    expected_shape: tuple[int, int],
+) -> dict[str, np.ndarray]:
+    zone_names = (
+        "charge1",
+        "charge2",
+        "charge3",
+        "tip1",
+        "tip2",
+    )
+
+    zones: dict[str, np.ndarray] = {}
+
+    for zone_name in zone_names:
+        zone_path = zones_dir / zone_name / f"{zone_name}.npy"
+
+        if not zone_path.is_file():
+            raise FileNotFoundError(
+                f"Missing defect zone mask: {zone_path}"
+            )
+
+        zone = np.load(
+            zone_path,
+            allow_pickle=False,
+        ).astype(bool)
+
+        if zone.shape != expected_shape:
+            raise ValueError(
+                f"{zone_name}: zone shape mismatch: "
+                f"{zone.shape} vs {expected_shape}"
+            )
+
+        if not zone.any():
+            raise ValueError(
+                f"{zone_name}: zone mask is empty"
+            )
+
+        zones[zone_name] = zone
+
+    return zones
+
+
 def load_frozen_geometry(geometry_output_dir: Path) -> LoadedGeometry:
     model_json_path = geometry_output_dir / "normal_geometry_model.json"
     if not model_json_path.is_file():
@@ -169,6 +212,7 @@ def evaluate_sensitivity(
     model: GeometryModel,
     config: ModelConfig,
     spec: DefectSpec,
+    defect_zones: dict[str, np.ndarray],
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     if normal.shape != model.median.shape:
         raise ValueError(f"Mask shape {normal.shape} does not match model {model.median.shape}")
@@ -210,24 +254,6 @@ def evaluate_sensitivity(
     
     robust_z_threshold = 3.0
     
-    normal_robust_z = _robust_z_metrics(
-        normal_robust_z_missing,
-        zone,
-        robust_z_threshold,
-    )
-    
-    defect_robust_z = _robust_z_metrics(
-        defect_robust_z_missing,
-        zone,
-        robust_z_threshold,
-    )
-    
-    delta_robust_z = _robust_z_metrics(
-        delta_robust_z_missing,
-        zone,
-        robust_z_threshold,
-    )
-    
     normal_zone = _zone_metrics(normal_missing, zone, config.residual_pixel_threshold)
     defect_zone = _zone_metrics(defect_missing, zone, config.residual_pixel_threshold)
     added_zone = _zone_metrics(added_missing, zone, config.residual_pixel_threshold)
@@ -237,6 +263,40 @@ def evaluate_sensitivity(
         "shape": spec.shape,
         "injected_removed_energy": injected_removed_energy,
     }
+    
+    for zone_name, zone_mask in defect_zones.items():
+        normal_zone_robust_z = _robust_z_metrics(
+            normal_robust_z_missing,
+            zone_mask,
+            robust_z_threshold,
+        )
+    
+        defect_zone_robust_z = _robust_z_metrics(
+            defect_robust_z_missing,
+            zone_mask,
+            robust_z_threshold,
+        )
+    
+        delta_zone_robust_z = _robust_z_metrics(
+            delta_robust_z_missing,
+            zone_mask,
+            robust_z_threshold,
+        )
+    
+        for metric_name, value in normal_zone_robust_z.items():
+            row[
+                f"normal_{zone_name}_robust_z_{metric_name}"
+            ] = value
+    
+        for metric_name, value in defect_zone_robust_z.items():
+            row[
+                f"defect_{zone_name}_robust_z_{metric_name}"
+            ] = value
+    
+        for metric_name, value in delta_zone_robust_z.items():
+            row[
+                f"delta_{zone_name}_robust_z_{metric_name}"
+            ] = value
 
     score_fields = (
         "center_rmse",
@@ -265,14 +325,6 @@ def evaluate_sensitivity(
         ("normal_zone_missing", normal_zone),
         ("defect_zone_missing", defect_zone),
         ("added_zone_missing", added_zone),
-    ):
-        for name, value in metrics.items():
-            row[f"{prefix}_{name}"] = value
-            
-    for prefix, metrics in (
-        ("normal_robust_z", normal_robust_z),
-        ("defect_robust_z", defect_robust_z),
-        ("delta_robust_z", delta_robust_z),
     ):
         for name, value in metrics.items():
             row[f"{prefix}_{name}"] = value
@@ -382,12 +434,32 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "defect_zone_missing_area",
         "defect_zone_missing_largest_component_sum",
         "defect_zone_missing_largest_component_area",
-        "normal_robust_z_largest_component_sum",
-        "defect_robust_z_largest_component_sum",
-        "delta_robust_z_largest_component_sum",
-        "normal_robust_z_max",
-        "defect_robust_z_max",
-        "delta_robust_z_max",
+    )
+    
+    local_zone_metric_names: list[str] = []
+
+    for zone_name in (
+        "charge1",
+        "charge2",
+        "charge3",
+        "tip1",
+        "tip2",
+    ):
+        for prefix in (
+            "normal",
+            "defect",
+            "delta",
+        ):
+            local_zone_metric_names.extend(
+                [
+                    f"{prefix}_{zone_name}_robust_z_max",
+                    f"{prefix}_{zone_name}_robust_z_largest_component_sum",
+                ]
+            )
+    
+    metric_names = (
+        *metric_names,
+        *local_zone_metric_names,
     )
 
     by_defect: dict[str, Any] = {}
@@ -432,6 +504,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--aligned-soft-dir", type=Path, required=True)
     parser.add_argument("--geometry-output-dir", type=Path, required=True)
     parser.add_argument("--defect-config", type=Path, required=True)
+    parser.add_argument("--defect-zones-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--recursive", action="store_true")
     parser.add_argument("--max-images", type=int, default=None)
@@ -454,8 +527,20 @@ def main() -> None:
 
     loaded = load_frozen_geometry(args.geometry_output_dir)
     model, config = loaded.model, loaded.config
-    defects, _ = load_defect_config(args.defect_config)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    defects, _ = load_defect_config(
+        args.defect_config
+    )
+    
+    defect_zones = _load_defect_zones(
+        args.defect_zones_dir,
+        model.median.shape,
+    )
+    
+    args.output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     rows: list[dict[str, Any]] = []
     review_candidates: list[tuple[float, dict[str, Any], dict[str, np.ndarray]]] = []
@@ -466,7 +551,7 @@ def main() -> None:
             raise ValueError(f"Shape mismatch: {path} has {normal.shape}, expected {model.median.shape}")
 
         for spec in defects:
-            row, artifacts = evaluate_sensitivity(normal, model, config, spec)
+            row, artifacts = evaluate_sensitivity(normal, model, config, spec, defect_zones)
             row["source_name"] = path.name
             row["source_path"] = str(path.resolve())
             rows.append(row)
