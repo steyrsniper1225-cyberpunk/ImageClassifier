@@ -360,6 +360,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--review-count", type=int, default=40)
     parser.add_argument("--minimum-fit-count", type=int, default=20)
     parser.add_argument("--defect-prone-mask", type=Path, required=True)
+    parser.add_argument("--defect-zone-dir", type=Path, required=True)
     return parser.parse_args()
 
 
