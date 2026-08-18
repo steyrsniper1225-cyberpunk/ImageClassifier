@@ -499,6 +499,171 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def save_local_zone_summary_tables(
+    rows: list[dict[str, Any]],
+    output_dir: Path,
+) -> tuple[Path, Path]:
+    zone_names = (
+        "charge1",
+        "charge2",
+        "charge3",
+        "tip1",
+        "tip2",
+    )
+
+    metric_names = (
+        "robust_z_max",
+        "robust_z_largest_component_sum",
+    )
+
+    detail_rows: list[dict[str, Any]] = []
+
+    defect_ids = sorted(
+        {str(row["defect_id"]) for row in rows}
+    )
+
+    for defect_id in defect_ids:
+        subset = [
+            row
+            for row in rows
+            if str(row["defect_id"]) == defect_id
+        ]
+
+        for zone_name in zone_names:
+            for metric_name in metric_names:
+                for kind in (
+                    "normal",
+                    "defect",
+                    "delta",
+                ):
+                    key = (
+                        f"{kind}_{zone_name}_{metric_name}"
+                    )
+
+                    values = [
+                        float(row[key])
+                        for row in subset
+                    ]
+
+                    stats = _stats(values)
+
+                    detail_rows.append(
+                        {
+                            "defect_id": defect_id,
+                            "zone": zone_name,
+                            "kind": kind,
+                            "metric": metric_name,
+                            "count": len(values),
+                            "min": stats["min"],
+                            "p05": stats["p05"],
+                            "median": stats["median"],
+                            "p95": stats["p95"],
+                            "p99": stats["p99"],
+                            "max": stats["max"],
+                        }
+                    )
+
+    detail_path = (
+        output_dir
+        / "local_zone_robust_z_summary.csv"
+    )
+
+    with detail_path.open(
+        "w",
+        newline="",
+        encoding="utf-8-sig",
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(detail_rows[0]),
+        )
+        writer.writeheader()
+        writer.writerows(detail_rows)
+
+    comparison_rows: list[dict[str, Any]] = []
+
+    for defect_id in defect_ids:
+        subset = [
+            row
+            for row in rows
+            if str(row["defect_id"]) == defect_id
+        ]
+
+        for zone_name in zone_names:
+            row_out: dict[str, Any] = {
+                "defect_id": defect_id,
+                "zone": zone_name,
+                "count": len(subset),
+            }
+
+            for metric_name in metric_names:
+                normal_values = [
+                    float(
+                        row[
+                            f"normal_{zone_name}_{metric_name}"
+                        ]
+                    )
+                    for row in subset
+                ]
+
+                defect_values = [
+                    float(
+                        row[
+                            f"defect_{zone_name}_{metric_name}"
+                        ]
+                    )
+                    for row in subset
+                ]
+
+                normal_stats = _stats(normal_values)
+                defect_stats = _stats(defect_values)
+
+                row_out[
+                    f"normal_{metric_name}_p95"
+                ] = normal_stats["p95"]
+
+                row_out[
+                    f"normal_{metric_name}_p99"
+                ] = normal_stats["p99"]
+
+                row_out[
+                    f"normal_{metric_name}_max"
+                ] = normal_stats["max"]
+
+                row_out[
+                    f"defect_{metric_name}_p05"
+                ] = defect_stats["p05"]
+
+                row_out[
+                    f"defect_{metric_name}_median"
+                ] = defect_stats["median"]
+
+                row_out[
+                    f"defect_{metric_name}_min"
+                ] = defect_stats["min"]
+
+            comparison_rows.append(row_out)
+
+    comparison_path = (
+        output_dir
+        / "local_zone_normal_vs_defect.csv"
+    )
+
+    with comparison_path.open(
+        "w",
+        newline="",
+        encoding="utf-8-sig",
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(comparison_rows[0]),
+        )
+        writer.writeheader()
+        writer.writerows(comparison_rows)
+
+    return detail_path, comparison_path
+    
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--aligned-soft-dir", type=Path, required=True)
@@ -591,6 +756,14 @@ def main() -> None:
             )
 
     analysis = build_summary(rows)
+    
+    local_zone_summary_path, local_zone_comparison_path = (
+            save_local_zone_summary_tables(
+                rows,
+                args.output_dir,
+            )
+    )
+    
     summary = {
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "purpose": "Frozen Normal Geometry Model defect sensitivity test",
@@ -622,7 +795,15 @@ def main() -> None:
         **analysis,
         "artifacts": {
             "results_csv": str(csv_path.resolve()),
-            "weakest_review_dir": str(review_dir.resolve()),
+            "local_zone_robust_z_summary_csv": str(
+                local_zone_summary_path.resolve()
+            ),
+            "local_zone_normal_vs_defect_csv": str(
+                local_zone_comparison_path.resolve()
+            ),
+            "weakest_review_dir": str(
+                review_dir.resolve()
+            ),
         },
     }
     summary_path = args.output_dir / "geometry_model_defect_sensitivity_summary.json"
