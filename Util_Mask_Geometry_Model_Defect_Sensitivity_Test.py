@@ -181,8 +181,21 @@ def _robust_z_metrics(
 
     largest_area, largest_sum = _largest_component(masked, threshold)
 
+    if values.size:
+        max_value = float(values.max())
+        median_value = float(np.median(values))
+        p90_value = float(np.quantile(values, 0.90))
+    else:
+        max_value = 0.0
+        median_value = 0.0
+        p90_value = 0.0
+
     return {
-        "max": float(values.max(initial=0.0)),
+        "max": max_value,
+        "median": median_value,
+        "p90": p90_value,
+        "peak_minus_median": max_value - median_value,
+        "peak_minus_p90": max_value - p90_value,
         "sum": float(values.sum()),
         "area_ge_threshold": int(np.count_nonzero(values >= threshold)),
         "largest_component_sum": largest_sum,
