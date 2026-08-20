@@ -171,6 +171,119 @@ def _largest_component(values: np.ndarray, threshold: float) -> tuple[int, float
     return int(selected.sum()), float(values[selected].sum())
 
 
+def _right_edge_crossing_x(
+    mask: np.ndarray,
+    zone: np.ndarray,
+    y: int,
+    level: float,
+) -> float | None:
+    xs = np.flatnonzero(zone[y])
+
+    if xs.size < 2:
+        return None
+
+    values = mask[y, xs]
+
+    above = values >= level
+
+    if not np.any(above):
+        return None
+
+    indices = np.flatnonzero(above)
+    last_index = int(indices[-1])
+
+    if last_index >= xs.size - 1:
+        return None
+
+    x1 = float(xs[last_index])
+    x2 = float(xs[last_index + 1])
+
+    v1 = float(values[last_index])
+    v2 = float(values[last_index + 1])
+
+    if abs(v2 - v1) < 1e-8:
+        return x1
+
+    fraction = (level - v1) / (v2 - v1)
+
+    return x1 + fraction * (x2 - x1)
+
+
+def _tip1_boundary_displacement_metrics(
+    observed: np.ndarray,
+    reference: np.ndarray,
+    tip1_zone: np.ndarray,
+) -> dict[str, float | int]:
+    levels = (0.35, 0.50, 0.65)
+
+    row_displacements: list[float] = []
+
+    ys = np.flatnonzero(np.any(tip1_zone, axis=1))
+
+    for y in ys:
+        level_displacements: list[float] = []
+
+        for level in levels:
+            reference_x = _right_edge_crossing_x(
+                reference,
+                tip1_zone,
+                int(y),
+                level,
+            )
+
+            observed_x = _right_edge_crossing_x(
+                observed,
+                tip1_zone,
+                int(y),
+                level,
+            )
+
+            if reference_x is None or observed_x is None:
+                continue
+
+            # Positive value = observed boundary retreated inward.
+            displacement = reference_x - observed_x
+
+            level_displacements.append(displacement)
+
+        if level_displacements:
+            row_displacements.append(
+                float(np.median(level_displacements))
+            )
+
+    if not row_displacements:
+        return {
+            "valid_rows": 0,
+            "median_retreat_px": 0.0,
+            "p95_retreat_px": 0.0,
+            "max_retreat_px": 0.0,
+            "positive_sum_px": 0.0,
+        }
+
+    values = np.asarray(
+        row_displacements,
+        dtype=np.float32,
+    )
+
+    positive = np.maximum(values, 0.0)
+
+    return {
+        "valid_rows": int(values.size),
+        "median_retreat_px": float(
+            np.median(values)
+        ),
+        "p95_retreat_px": float(
+            np.quantile(values, 0.95)
+        ),
+        "max_retreat_px": float(
+            values.max()
+        ),
+        "positive_sum_px": float(
+            positive.sum()
+        ),
+    }
+
+
 def _robust_z_metrics(
     robust_z_missing: np.ndarray,
     zone: np.ndarray,
@@ -276,6 +389,47 @@ def evaluate_sensitivity(
         "shape": spec.shape,
         "injected_removed_energy": injected_removed_energy,
     }
+    
+    tip1_zone = defect_zones["tip1"]
+    
+    normal_tip1_displacement = (
+        _tip1_boundary_displacement_metrics(
+            normal,
+            model.median,
+            tip1_zone,
+        )
+    )
+    
+    defect_tip1_displacement = (
+        _tip1_boundary_displacement_metrics(
+            defective,
+            model.median,
+            tip1_zone,
+        )
+    )
+    
+    for metric_name, value in normal_tip1_displacement.items():
+        row[
+            f"normal_tip1_boundary_{metric_name}"
+        ] = value
+    
+    for metric_name, value in defect_tip1_displacement.items():
+        row[
+            f"defect_tip1_boundary_{metric_name}"
+        ] = value
+    
+    for metric_name in (
+        "median_retreat_px",
+        "p95_retreat_px",
+        "max_retreat_px",
+        "positive_sum_px",
+    ):
+        row[
+            f"delta_tip1_boundary_{metric_name}"
+        ] = (
+            float(defect_tip1_displacement[metric_name])
+            - float(normal_tip1_displacement[metric_name])
+        )
     
     for zone_name, zone_mask in defect_zones.items():
         normal_zone_robust_z = _robust_z_metrics(
