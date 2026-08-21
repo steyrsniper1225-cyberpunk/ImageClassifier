@@ -289,19 +289,56 @@ def _robust_z_metrics(
     zone: np.ndarray,
     threshold: float,
 ) -> dict[str, float | int]:
-    masked = np.where(zone, robust_z_missing, 0.0).astype(np.float32)
+    masked = np.where(
+        zone,
+        robust_z_missing,
+        0.0,
+    ).astype(np.float32)
+
     values = robust_z_missing[zone]
 
-    largest_area, largest_sum = _largest_component(masked, threshold)
+    largest_area, largest_sum = _largest_component(
+        masked,
+        threshold,
+    )
 
     if values.size:
         max_value = float(values.max())
         median_value = float(np.median(values))
         p90_value = float(np.quantile(values, 0.90))
+
+        sorted_values = np.sort(values)[::-1]
+
+        top3_sum = float(
+            sorted_values[:3].sum()
+        )
+
+        top5_sum = float(
+            sorted_values[:5].sum()
+        )
     else:
         max_value = 0.0
         median_value = 0.0
         p90_value = 0.0
+        top3_sum = 0.0
+        top5_sum = 0.0
+
+    local_3x3_sum = cv2.boxFilter(
+        masked,
+        ddepth=-1,
+        ksize=(3, 3),
+        normalize=False,
+        borderType=cv2.BORDER_CONSTANT,
+    )
+
+    valid_centers = zone.astype(bool)
+
+    if np.any(valid_centers):
+        max_3x3_sum = float(
+            local_3x3_sum[valid_centers].max()
+        )
+    else:
+        max_3x3_sum = 0.0
 
     return {
         "max": max_value,
@@ -309,8 +346,15 @@ def _robust_z_metrics(
         "p90": p90_value,
         "peak_minus_median": max_value - median_value,
         "peak_minus_p90": max_value - p90_value,
+
+        "top3_sum": top3_sum,
+        "top5_sum": top5_sum,
+        "max_3x3_sum": max_3x3_sum,
+
         "sum": float(values.sum()),
-        "area_ge_threshold": int(np.count_nonzero(values >= threshold)),
+        "area_ge_threshold": int(
+            np.count_nonzero(values >= threshold)
+        ),
         "largest_component_sum": largest_sum,
         "largest_component_area": largest_area,
     }
