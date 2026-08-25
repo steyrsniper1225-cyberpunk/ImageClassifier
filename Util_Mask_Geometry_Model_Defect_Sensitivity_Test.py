@@ -284,6 +284,99 @@ def _tip1_boundary_displacement_metrics(
     }
 
 
+def _patch_top3_sum(
+    robust_z: np.ndarray,
+    center_y: int,
+    center_x: int,
+    radius: int = 1,
+) -> float:
+    h, w = robust_z.shape
+
+    y0 = max(0, center_y - radius)
+    y1 = min(h, center_y + radius + 1)
+    x0 = max(0, center_x - radius)
+    x1 = min(w, center_x + radius + 1)
+
+    patch = robust_z[y0:y1, x0:x1].ravel()
+
+    if patch.size == 0:
+        return 0.0
+
+    k = min(3, patch.size)
+
+    top_values = np.partition(
+        patch,
+        patch.size - k,
+    )[-k:]
+
+    return float(top_values.sum())
+
+
+def _tip1_local_patch_excess(
+    robust_z: np.ndarray,
+    alpha: np.ndarray,
+    tip1_zone: np.ndarray,
+    reference_offset_px: int = 4,
+) -> dict[str, float]:
+    candidate_pixels = np.argwhere(
+        (alpha > 0.0) & tip1_zone
+    )
+
+    if candidate_pixels.size == 0:
+        return {
+            "candidate_top3_sum": 0.0,
+            "reference_top3_sum": 0.0,
+            "patch_excess": 0.0,
+        }
+
+    # Synthetic defect의 중심 위치.
+    center_y = int(
+        np.round(candidate_pixels[:, 0].mean())
+    )
+    center_x = int(
+        np.round(candidate_pixels[:, 1].mean())
+    )
+
+    candidate_top3 = _patch_top3_sum(
+        robust_z,
+        center_y,
+        center_x,
+    )
+
+    reference_values: list[float] = []
+
+    for dy in (
+        -reference_offset_px,
+        reference_offset_px,
+    ):
+        ref_y = center_y + dy
+
+        if (
+            0 <= ref_y < robust_z.shape[0]
+            and tip1_zone[ref_y, center_x]
+        ):
+            reference_values.append(
+                _patch_top3_sum(
+                    robust_z,
+                    ref_y,
+                    center_x,
+                )
+            )
+
+    if reference_values:
+        reference_top3 = float(
+            np.median(reference_values)
+        )
+    else:
+        reference_top3 = 0.0
+
+    return {
+        "candidate_top3_sum": candidate_top3,
+        "reference_top3_sum": reference_top3,
+        "patch_excess": candidate_top3 - reference_top3,
+    }
+
+
 def _robust_z_metrics(
     robust_z_missing: np.ndarray,
     zone: np.ndarray,
@@ -435,6 +528,28 @@ def evaluate_sensitivity(
     }
     
     tip1_zone = defect_zones["tip1"]
+    
+    normal_tip1_patch = _tip1_local_patch_excess(
+        normal_robust_z_missing,
+        alpha,
+        tip1_zone,
+    )
+    
+    defect_tip1_patch = _tip1_local_patch_excess(
+        defect_robust_z_missing,
+        alpha,
+        tip1_zone,
+    )
+    
+    for metric_name, value in normal_tip1_patch.items():
+        row[
+            f"normal_tip1_local_{metric_name}"
+        ] = value
+    
+    for metric_name, value in defect_tip1_patch.items():
+        row[
+            f"defect_tip1_local_{metric_name}"
+        ] = value
     
     normal_tip1_displacement = (
         _tip1_boundary_displacement_metrics(
