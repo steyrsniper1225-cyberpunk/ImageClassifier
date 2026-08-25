@@ -321,9 +321,11 @@ def _tip1_local_patch_excess(
     candidate_pixels = np.argwhere(
         (alpha > 0.0) & tip1_zone
     )
+    tip1_local_candidate_pixel_count = candidate_pixels.shape[0]
 
     if candidate_pixels.size == 0:
         return {
+            "tip1_local_candidate_pixel_count": 0.0,
             "candidate_top3_sum": 0.0,
             "reference_top3_sum": 0.0,
             "patch_excess": 0.0,
@@ -371,6 +373,7 @@ def _tip1_local_patch_excess(
         reference_top3 = 0.0
 
     return {
+        "tip1_local_candidate_pixel_count": tip1_local_candidate_pixel_count,
         "candidate_top3_sum": candidate_top3,
         "reference_top3_sum": reference_top3,
         "patch_excess": candidate_top3 - reference_top3,
