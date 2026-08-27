@@ -1292,27 +1292,38 @@ def save_score_grade_review(
         width=1,
     )
 
+    score_zone_name = str(
+    row.get(
+        "score_grade_zone",
+        "tip1",
+        )
+    )
+    
     normal_score = float(
         row[
-            "normal_tip1_local_corrected_top3_sum"
+            f"normal_{score_zone_name}_"
+            "local_corrected_top3_sum"
         ]
     )
-
+    
     defect_score = float(
         row[
-            "defect_tip1_local_corrected_top3_sum"
+            f"defect_{score_zone_name}_"
+            "local_corrected_top3_sum"
         ]
     )
-
+    
     normal_local_signed = float(
         row[
-            "normal_tip1_local_signed_excess"
+            f"normal_{score_zone_name}_"
+            "local_signed_excess"
         ]
     )
-
+    
     defect_local_signed = float(
         row[
-            "defect_tip1_local_signed_excess"
+            f"defect_{score_zone_name}_"
+            "local_signed_excess"
         ]
     )
 
@@ -1330,6 +1341,7 @@ def save_score_grade_review(
         (
             f"Source: {row['source_name']}  |  "
             f"Defect: {row['defect_id']}"
+            f"Zine: {score_zone_name}"
         ),
         fill="black",
     )
@@ -1762,19 +1774,31 @@ def main() -> None:
                 )
             )
 
-            tip1_candidate_pixel_count = int(
-                row.get(
-                    "defect_tip1_candidate_pixel_count",
-                    0,
+            score_zone_name: str | None = None
+            
+            for tip_name in (
+                "tip1",
+                "tip2",
+            ):
+                candidate_pixel_count = int(
+                    row.get(
+                        f"defect_{tip_name}_candidate_pixel_count",
+                        0,
+                    )
                 )
-            )
-
-            if tip1_candidate_pixel_count > 0:
+            
+                if candidate_pixel_count > 0:
+                    score_zone_name = tip_name
+                    break
+            
+            if score_zone_name is not None:
+                row["score_grade_zone"] = score_zone_name
+            
                 score_grade_candidates.append(
                     (
                         float(
                             row[
-                                "defect_tip1_"
+                                f"defect_{score_zone_name}_"
                                 "local_corrected_top3_sum"
                             ]
                         ),
