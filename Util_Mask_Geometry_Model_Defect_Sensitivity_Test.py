@@ -1080,6 +1080,168 @@ def save_review(artifacts: dict[str, np.ndarray], row: dict[str, Any], path: Pat
     canvas.save(path)
 
 
+def save_score_grade_review(
+    artifacts: dict[str, np.ndarray],
+    row: dict[str, Any],
+    path: Path,
+) -> None:
+    normal_panel = _gray_rgb(
+        artifacts["normal"]
+    )
+
+    defect_panel = _gray_rgb(
+        artifacts["defective"]
+    )
+
+    height, width = artifacts["normal"].shape
+
+    label_height = 32
+    footer_height = 90
+
+    canvas_width = width * 2
+    canvas_height = (
+        height
+        + label_height
+        + footer_height
+    )
+
+    canvas = Image.new(
+        "RGB",
+        (
+            canvas_width,
+            canvas_height,
+        ),
+        "white",
+    )
+
+    draw = ImageDraw.Draw(canvas)
+
+    draw.text(
+        (8, 8),
+        "Aligned normal",
+        fill="black",
+    )
+
+    draw.text(
+        (width + 8, 8),
+        "Injected defect",
+        fill="black",
+    )
+
+    canvas.paste(
+        Image.fromarray(normal_panel),
+        (
+            0,
+            label_height,
+        ),
+    )
+
+    canvas.paste(
+        Image.fromarray(defect_panel),
+        (
+            width,
+            label_height,
+        ),
+    )
+
+    separator_x = width
+
+    draw.line(
+        (
+            separator_x,
+            0,
+            separator_x,
+            label_height + height,
+        ),
+        fill=(180, 180, 180),
+        width=1,
+    )
+
+    normal_score = float(
+        row[
+            "normal_tip1_local_corrected_top3_sum"
+        ]
+    )
+
+    defect_score = float(
+        row[
+            "defect_tip1_local_corrected_top3_sum"
+        ]
+    )
+
+    normal_local_signed = float(
+        row[
+            "normal_tip1_local_signed_excess"
+        ]
+    )
+
+    defect_local_signed = float(
+        row[
+            "defect_tip1_local_signed_excess"
+        ]
+    )
+
+    footer_y = (
+        label_height
+        + height
+        + 8
+    )
+
+    draw.text(
+        (
+            8,
+            footer_y,
+        ),
+        (
+            f"Source: {row['source_name']}  |  "
+            f"Defect: {row['defect_id']}"
+        ),
+        fill="black",
+    )
+
+    draw.text(
+        (
+            8,
+            footer_y + 22,
+        ),
+        (
+            "local_corrected_top3_sum  |  "
+            f"Normal: {normal_score:.3f}  |  "
+            f"Defect: {defect_score:.3f}"
+        ),
+        fill="black",
+    )
+
+    draw.text(
+        (
+            8,
+            footer_y + 44,
+        ),
+        (
+            "local_signed_excess  |  "
+            f"Normal: {normal_local_signed:.3f}  |  "
+            f"Defect: {defect_local_signed:.3f}"
+        ),
+        fill="black",
+    )
+
+    draw.text(
+        (
+            8,
+            footer_y + 66,
+        ),
+        "Visual grade:  NORMAL  /  AMBIGUOUS  /  DEFECT",
+        fill="black",
+    )
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    canvas.save(path)
+
+
 def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     metric_names = (
         "injected_removed_energy",
@@ -1346,122 +1508,463 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.review_count < 0:
-        raise ValueError("--review-count must be non-negative")
-    if args.output_dir.exists() and any(args.output_dir.iterdir()):
-        raise FileExistsError(f"Output directory is not empty: {args.output_dir}")
 
-    paths = discover_masks(args.aligned_soft_dir, args.recursive)
+    if args.review_count < 0:
+        raise ValueError(
+            "--review-count must be non-negative"
+        )
+
+    if (
+        args.output_dir.exists()
+        and any(args.output_dir.iterdir())
+    ):
+        raise FileExistsError(
+            "Output directory is not empty: "
+            f"{args.output_dir}"
+        )
+
+    paths = discover_masks(
+        args.aligned_soft_dir,
+        args.recursive,
+    )
+
     if args.max_images is not None:
         if args.max_images <= 0:
-            raise ValueError("--max-images must be positive")
-        paths = paths[: args.max_images]
+            raise ValueError(
+                "--max-images must be positive"
+            )
 
-    loaded = load_frozen_geometry(args.geometry_output_dir)
-    model, config = loaded.model, loaded.config
-    
+        paths = paths[
+            :args.max_images
+        ]
+
+    loaded = load_frozen_geometry(
+        args.geometry_output_dir
+    )
+
+    model = loaded.model
+    config = loaded.config
+
     defects, _ = load_defect_config(
         args.defect_config
     )
-    
+
     defect_zones = _load_defect_zones(
         args.defect_zones_dir,
         model.median.shape,
     )
-    
+
     args.output_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    rows: list[dict[str, Any]] = []
-    review_candidates: list[tuple[float, dict[str, Any], dict[str, np.ndarray]]] = []
+    rows: list[
+        dict[str, Any]
+    ] = []
 
-    for path in tqdm(paths, desc="Geometry defect sensitivity", unit="mask"):
-        normal = load_soft_mask(path)
+    review_candidates: list[
+        tuple[
+            float,
+            dict[str, Any],
+            dict[str, np.ndarray],
+        ]
+    ] = []
+
+    score_grade_candidates: list[
+        tuple[
+            float,
+            dict[str, Any],
+            dict[str, np.ndarray],
+        ]
+    ] = []
+
+    for path in tqdm(
+        paths,
+        desc="Geometry defect sensitivity",
+        unit="mask",
+    ):
+        normal = load_soft_mask(
+            path
+        )
+
         if normal.shape != model.median.shape:
-            raise ValueError(f"Shape mismatch: {path} has {normal.shape}, expected {model.median.shape}")
-
-        for spec in defects:
-            row, artifacts = evaluate_sensitivity(normal, model, config, spec, defect_zones)
-            row["source_name"] = path.name
-            row["source_path"] = str(path.resolve())
-            rows.append(row)
-
-            # Lower local added missing signal means weaker model sensitivity.
-            review_candidates.append(
-                (float(row["added_zone_missing_sum"]), row, artifacts)
+            raise ValueError(
+                f"Shape mismatch: "
+                f"{path} has {normal.shape}, "
+                f"expected {model.median.shape}"
             )
 
+        for spec in defects:
+            row, artifacts = (
+                evaluate_sensitivity(
+                    normal,
+                    model,
+                    config,
+                    spec,
+                    defect_zones,
+                )
+            )
+
+            row["source_name"] = path.name
+            row["source_path"] = str(
+                path.resolve()
+            )
+
+            rows.append(
+                row
+            )
+
+            review_candidates.append(
+                (
+                    float(
+                        row[
+                            "added_zone_missing_sum"
+                        ]
+                    ),
+                    row,
+                    artifacts,
+                )
+            )
+
+            tip1_candidate_pixel_count = int(
+                row.get(
+                    "defect_tip1_candidate_pixel_count",
+                    0,
+                )
+            )
+
+            if tip1_candidate_pixel_count > 0:
+                score_grade_candidates.append(
+                    (
+                        float(
+                            row[
+                                "defect_tip1_"
+                                "local_corrected_top3_sum"
+                            ]
+                        ),
+                        row,
+                        artifacts,
+                    )
+                )
+
     if not rows:
-        raise RuntimeError("No sensitivity rows were generated")
+        raise RuntimeError(
+            "No sensitivity rows were generated"
+        )
 
-    csv_path = args.output_dir / "geometry_model_defect_sensitivity_results.csv"
-    with csv_path.open("w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+    csv_path = (
+        args.output_dir
+        / "geometry_model_defect_sensitivity_results.csv"
+    )
+
+    with csv_path.open(
+        "w",
+        newline="",
+        encoding="utf-8-sig",
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(
+                rows[0]
+            ),
+        )
+
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            rows
+        )
 
-    # Keep weak cases per defect so one defect family cannot monopolize all reviews.
-    review_dir = args.output_dir / "reviews_weakest_sensitivity"
+    review_dir = (
+        args.output_dir
+        / "reviews_weakest_sensitivity"
+    )
+
     if args.review_count > 0:
-        defect_ids = sorted({str(row["defect_id"]) for row in rows})
-        per_defect = max(1, args.review_count // max(len(defect_ids), 1))
-        selected: list[tuple[float, dict[str, Any], dict[str, np.ndarray]]] = []
-        for defect_id in defect_ids:
-            subset = [item for item in review_candidates if item[1]["defect_id"] == defect_id]
-            selected.extend(sorted(subset, key=lambda item: item[0])[:per_defect])
-        selected = sorted(selected, key=lambda item: item[0])[: args.review_count]
+        defect_ids = sorted(
+            {
+                str(row["defect_id"])
+                for row in rows
+            }
+        )
 
-        for index, (_, row, artifacts) in enumerate(selected, start=1):
-            safe_defect = str(row["defect_id"]).replace("/", "_")
-            stem = Path(str(row["source_name"])).stem
+        per_defect = max(
+            1,
+            args.review_count
+            // max(
+                len(defect_ids),
+                1,
+            ),
+        )
+
+        selected: list[
+            tuple[
+                float,
+                dict[str, Any],
+                dict[str, np.ndarray],
+            ]
+        ] = []
+
+        for defect_id in defect_ids:
+            subset = [
+                item
+                for item in review_candidates
+                if item[1]["defect_id"]
+                == defect_id
+            ]
+
+            selected.extend(
+                sorted(
+                    subset,
+                    key=lambda item: item[0],
+                )[
+                    :per_defect
+                ]
+            )
+
+        selected = sorted(
+            selected,
+            key=lambda item: item[0],
+        )[
+            :args.review_count
+        ]
+
+        for index, (
+            _,
+            row,
+            artifacts,
+        ) in enumerate(
+            selected,
+            start=1,
+        ):
+            safe_defect = str(
+                row["defect_id"]
+            ).replace(
+                "/",
+                "_",
+            )
+
+            stem = Path(
+                str(
+                    row["source_name"]
+                )
+            ).stem
+
             save_review(
                 artifacts,
                 row,
-                review_dir / f"{index:03d}_{stem}_{safe_defect}.png",
+                review_dir
+                / (
+                    f"{index:03d}_"
+                    f"{stem}_"
+                    f"{safe_defect}.png"
+                ),
             )
 
-    analysis = build_summary(rows)
-    
-    local_zone_summary_path, local_zone_comparison_path = (
-            save_local_zone_summary_tables(
-                rows,
-                args.output_dir,
-            )
+    score_grade_dir = (
+        args.output_dir
+        / "review_score_grade"
     )
-    
+
+    score_grade_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    score_grade_candidates = sorted(
+        score_grade_candidates,
+        key=lambda item: item[0],
+    )
+
+    score_grade_rows: list[
+        dict[str, Any]
+    ] = []
+
+    for rank, (
+        defect_score,
+        row,
+        artifacts,
+    ) in enumerate(
+        score_grade_candidates,
+        start=1,
+    ):
+        safe_defect = str(
+            row["defect_id"]
+        ).replace(
+            "/",
+            "_",
+        )
+
+        stem = Path(
+            str(
+                row["source_name"]
+            )
+        ).stem
+
+        filename = (
+            f"{rank:04d}_"
+            f"score_{defect_score:07.3f}_"
+            f"{stem}_"
+            f"{safe_defect}.png"
+        )
+
+        save_score_grade_review(
+            artifacts,
+            row,
+            score_grade_dir
+            / filename,
+        )
+
+        score_grade_rows.append(
+            {
+                "rank": rank,
+                "source_name": (
+                    row["source_name"]
+                ),
+                "defect_id": (
+                    row["defect_id"]
+                ),
+                "normal_local_signed_excess": (
+                    row[
+                        "normal_tip1_"
+                        "local_signed_excess"
+                    ]
+                ),
+                "defect_local_signed_excess": (
+                    row[
+                        "defect_tip1_"
+                        "local_signed_excess"
+                    ]
+                ),
+                "normal_local_corrected_top3_sum": (
+                    row[
+                        "normal_tip1_"
+                        "local_corrected_top3_sum"
+                    ]
+                ),
+                "defect_local_corrected_top3_sum": (
+                    row[
+                        "defect_tip1_"
+                        "local_corrected_top3_sum"
+                    ]
+                ),
+                "visual_grade": "",
+                "review_png": filename,
+            }
+        )
+
+    score_grade_csv_path = (
+        score_grade_dir
+        / "score_grade_index.csv"
+    )
+
+    if score_grade_rows:
+        with score_grade_csv_path.open(
+            "w",
+            newline="",
+            encoding="utf-8-sig",
+        ) as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=list(
+                    score_grade_rows[0]
+                ),
+            )
+
+            writer.writeheader()
+            writer.writerows(
+                score_grade_rows
+            )
+
+    analysis = build_summary(
+        rows
+    )
+
+    (
+        local_zone_summary_path,
+        local_zone_comparison_path,
+    ) = save_local_zone_summary_tables(
+        rows,
+        args.output_dir,
+    )
+
     summary = {
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "purpose": "Frozen Normal Geometry Model defect sensitivity test",
-        "aligned_mask_count": len(paths),
-        "defect_count_per_mask": len(defects),
-        "pair_count": len(rows),
-        "geometry_output_dir": str(args.geometry_output_dir.resolve()),
-        "geometry_model_json": str(loaded.model_json_path.resolve()),
+        "created_at": (
+            datetime.now()
+            .astimezone()
+            .isoformat(
+                timespec="seconds"
+            )
+        ),
+        "purpose": (
+            "Frozen Normal Geometry Model "
+            "defect sensitivity test"
+        ),
+        "aligned_mask_count": len(
+            paths
+        ),
+        "defect_count_per_mask": len(
+            defects
+        ),
+        "pair_count": len(
+            rows
+        ),
+        "geometry_output_dir": str(
+            args.geometry_output_dir.resolve()
+        ),
+        "geometry_model_json": str(
+            loaded.model_json_path.resolve()
+        ),
         "geometry_model_config": {
-            "lower_quantile": config.lower_quantile,
-            "upper_quantile": config.upper_quantile,
-            "binary_threshold": config.binary_threshold,
-            "residual_pixel_threshold": config.residual_pixel_threshold,
-            "robust_sigma_floor": config.robust_sigma_floor,
+            "lower_quantile": (
+                config.lower_quantile
+            ),
+            "upper_quantile": (
+                config.upper_quantile
+            ),
+            "binary_threshold": (
+                config.binary_threshold
+            ),
+            "residual_pixel_threshold": (
+                config.residual_pixel_threshold
+            ),
+            "robust_sigma_floor": (
+                config.robust_sigma_floor
+            ),
         },
-        "defect_config": str(args.defect_config.resolve()),
+        "defect_config": str(
+            args.defect_config.resolve()
+        ),
         "measurement_definition": {
-            "normal_missing": "max(frozen_lower_envelope - aligned_normal, 0)",
-            "defect_missing": "max(frozen_lower_envelope - injected_defective, 0)",
-            "added_missing": "max(defect_missing - normal_missing, 0)",
-            "zone": "configured defect support dilated by evaluation_margin_px",
-            "primary_screening_metrics": [
-                "added_zone_missing_sum",
-                "added_zone_missing_largest_component_sum",
-                "defect_zone_missing_largest_component_sum",
-                "defect_zone_missing_largest_component_area",
-            ],
+            "normal_missing": (
+                "max(frozen_lower_envelope "
+                "- aligned_normal, 0)"
+            ),
+            "defect_missing": (
+                "max(frozen_lower_envelope "
+                "- injected_defective, 0)"
+            ),
+            "added_missing": (
+                "max(defect_missing "
+                "- normal_missing, 0)"
+            ),
+            "zone": (
+                "configured defect support "
+                "dilated by "
+                "evaluation_margin_px"
+            ),
+            "tip1_local_corrected_top3": (
+                "signed-Z -> nearby Tip1 "
+                "reference median subtraction "
+                "-> positive clipping "
+                "-> candidate top3 sum"
+            ),
         },
         **analysis,
         "artifacts": {
-            "results_csv": str(csv_path.resolve()),
+            "results_csv": str(
+                csv_path.resolve()
+            ),
             "local_zone_robust_z_summary_csv": str(
                 local_zone_summary_path.resolve()
             ),
@@ -1471,13 +1974,50 @@ def main() -> None:
             "weakest_review_dir": str(
                 review_dir.resolve()
             ),
+            "score_grade_review_dir": str(
+                score_grade_dir.resolve()
+            ),
+            "score_grade_index_csv": (
+                str(
+                    score_grade_csv_path.resolve()
+                )
+                if score_grade_rows
+                else None
+            ),
         },
     }
-    summary_path = args.output_dir / "geometry_model_defect_sensitivity_summary.json"
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"Sensitivity complete: {len(paths)} masks x {len(defects)} defects = {len(rows)} pairs")
-    print(f"Summary: {summary_path.resolve()}")
+    summary_path = (
+        args.output_dir
+        / "geometry_model_defect_sensitivity_summary.json"
+    )
+
+    summary_path.write_text(
+        json.dumps(
+            summary,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    print(
+        "Sensitivity complete: "
+        f"{len(paths)} masks x "
+        f"{len(defects)} defects = "
+        f"{len(rows)} pairs"
+    )
+
+    print(
+        f"Summary: "
+        f"{summary_path.resolve()}"
+    )
+
+    print(
+        "Score-grade review: "
+        f"{score_grade_dir.resolve()} "
+        f"({len(score_grade_rows)} images)"
+    )
 
 
 if __name__ == "__main__":
