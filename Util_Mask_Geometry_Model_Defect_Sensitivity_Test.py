@@ -691,8 +691,9 @@ def evaluate_sensitivity(
 ]:
     if normal.shape != model.median.shape:
         raise ValueError(
-            f"Mask shape {normal.shape} does not match "
-            f"model {model.median.shape}"
+            f"Mask shape {normal.shape} "
+            f"does not match model "
+            f"{model.median.shape}"
         )
 
     alpha = make_defect_alpha(
@@ -714,8 +715,8 @@ def evaluate_sensitivity(
 
     if injected_removed_energy <= 0.05:
         raise ValueError(
-            f"{spec.defect_id}: configured defect does not "
-            "overlap observable metal; "
+            f"{spec.defect_id}: configured defect "
+            "does not overlap observable metal; "
             "check canonical coordinates"
         )
 
@@ -752,7 +753,9 @@ def evaluate_sensitivity(
     )
 
     sigma_floor = max(
-        float(config.robust_sigma_floor),
+        float(
+            config.robust_sigma_floor
+        ),
         1e-6,
     )
 
@@ -769,20 +772,26 @@ def evaluate_sensitivity(
         model.median - defective
     ) / sigma
 
-    normal_robust_z_missing = np.maximum(
-        normal_signed_z,
-        0.0,
+    normal_robust_z_missing = (
+        np.maximum(
+            normal_signed_z,
+            0.0,
+        )
     )
 
-    defect_robust_z_missing = np.maximum(
-        defect_signed_z,
-        0.0,
+    defect_robust_z_missing = (
+        np.maximum(
+            defect_signed_z,
+            0.0,
+        )
     )
 
-    delta_robust_z_missing = np.maximum(
-        defect_robust_z_missing
-        - normal_robust_z_missing,
-        0.0,
+    delta_robust_z_missing = (
+        np.maximum(
+            defect_robust_z_missing
+            - normal_robust_z_missing,
+            0.0,
+        )
     )
 
     zone = evaluation_zone(
@@ -811,93 +820,111 @@ def evaluate_sensitivity(
     )
 
     row: dict[str, Any] = {
-        "defect_id": spec.defect_id,
-        "shape": spec.shape,
+        "defect_id": (
+            spec.defect_id
+        ),
+        "shape": (
+            spec.shape
+        ),
         "injected_removed_energy": (
             injected_removed_energy
         ),
     }
 
-    tip1_zone = defect_zones["tip1"]
-
-    normal_tip1_signed = (
-        _tip1_signed_local_metrics(
-            normal_signed_z,
-            alpha,
-            tip1_zone,
-        )
-    )
-
-    defect_tip1_signed = (
-        _tip1_signed_local_metrics(
-            defect_signed_z,
-            alpha,
-            tip1_zone,
-        )
-    )
-
-    for metric_name, value in (
-        normal_tip1_signed.items()
+    for tip_name in (
+        "tip1",
+        "tip2",
     ):
+        tip_zone = defect_zones[
+            tip_name
+        ]
+
+        normal_tip_metrics = (
+            _local_signed_boundary_metrics(
+                normal_signed_z,
+                alpha,
+                tip_zone,
+            )
+        )
+
+        defect_tip_metrics = (
+            _local_signed_boundary_metrics(
+                defect_signed_z,
+                alpha,
+                tip_zone,
+            )
+        )
+
+        for (
+            metric_name,
+            value,
+        ) in normal_tip_metrics.items():
+            row[
+                f"normal_{tip_name}_"
+                f"{metric_name}"
+            ] = value
+
+        for (
+            metric_name,
+            value,
+        ) in defect_tip_metrics.items():
+            row[
+                f"defect_{tip_name}_"
+                f"{metric_name}"
+            ] = value
+
         row[
-            f"normal_tip1_{metric_name}"
-        ] = value
+            f"paired_{tip_name}_"
+            "candidate_signed_z_shift"
+        ] = (
+            float(
+                defect_tip_metrics[
+                    "candidate_signed_z_median"
+                ]
+            )
+            - float(
+                normal_tip_metrics[
+                    "candidate_signed_z_median"
+                ]
+            )
+        )
 
-    for metric_name, value in (
-        defect_tip1_signed.items()
-    ):
         row[
-            f"defect_tip1_{metric_name}"
-        ] = value
+            f"paired_{tip_name}_"
+            "local_signed_excess_shift"
+        ] = (
+            float(
+                defect_tip_metrics[
+                    "local_signed_excess"
+                ]
+            )
+            - float(
+                normal_tip_metrics[
+                    "local_signed_excess"
+                ]
+            )
+        )
 
-    row[
-        "paired_tip1_candidate_signed_z_shift"
-    ] = (
-        float(
-            defect_tip1_signed[
-                "candidate_signed_z_median"
-            ]
+        row[
+            f"paired_{tip_name}_"
+            "local_corrected_top3_shift"
+        ] = (
+            float(
+                defect_tip_metrics[
+                    "local_corrected_top3_sum"
+                ]
+            )
+            - float(
+                normal_tip_metrics[
+                    "local_corrected_top3_sum"
+                ]
+            )
         )
-        - float(
-            normal_tip1_signed[
-                "candidate_signed_z_median"
-            ]
-        )
-    )
 
-    row[
-        "paired_tip1_local_signed_excess_shift"
-    ] = (
-        float(
-            defect_tip1_signed[
-                "local_signed_excess"
-            ]
-        )
-        - float(
-            normal_tip1_signed[
-                "local_signed_excess"
-            ]
-        )
-    )
-
-    row[
-        "paired_tip1_local_corrected_top3_shift"
-    ] = (
-        float(
-            defect_tip1_signed[
-                "local_corrected_top3_sum"
-            ]
-        )
-        - float(
-            normal_tip1_signed[
-                "local_corrected_top3_sum"
-            ]
-        )
-    )
-
-    for zone_name, zone_mask in (
-        defect_zones.items()
-    ):
+    for (
+        zone_name,
+        zone_mask,
+    ) in defect_zones.items():
         normal_zone_robust_z = (
             _robust_z_metrics(
                 normal_robust_z_missing,
@@ -967,8 +994,17 @@ def evaluate_sensitivity(
     )
 
     for field in score_fields:
-        normal_value = normal_score[field]
-        defect_value = defect_score[field]
+        normal_value = (
+            normal_score[
+                field
+            ]
+        )
+
+        defect_value = (
+            defect_score[
+                field
+            ]
+        )
 
         row[
             f"normal_{field}"
@@ -999,7 +1035,10 @@ def evaluate_sensitivity(
             added_zone,
         ),
     ):
-        for name, value in metrics.items():
+        for (
+            name,
+            value,
+        ) in metrics.items():
             row[
                 f"{prefix}_{name}"
             ] = value
@@ -1007,26 +1046,39 @@ def evaluate_sensitivity(
     row[
         "delta_zone_missing_sum"
     ] = (
-        float(defect_zone["sum"])
-        - float(normal_zone["sum"])
+        float(
+            defect_zone["sum"]
+        )
+        - float(
+            normal_zone["sum"]
+        )
     )
 
     row[
         "delta_zone_missing_max"
     ] = (
-        float(defect_zone["max"])
-        - float(normal_zone["max"])
+        float(
+            defect_zone["max"]
+        )
+        - float(
+            normal_zone["max"]
+        )
     )
 
     row[
         "delta_zone_missing_area"
     ] = (
-        int(defect_zone["area"])
-        - int(normal_zone["area"])
+        int(
+            defect_zone["area"]
+        )
+        - int(
+            normal_zone["area"]
+        )
     )
 
     row[
-        "delta_zone_missing_largest_component_sum"
+        "delta_zone_missing_"
+        "largest_component_sum"
     ] = (
         float(
             defect_zone[
@@ -1041,7 +1093,8 @@ def evaluate_sensitivity(
     )
 
     row[
-        "delta_zone_missing_largest_component_area"
+        "delta_zone_missing_"
+        "largest_component_area"
     ] = (
         int(
             defect_zone[
@@ -1056,12 +1109,24 @@ def evaluate_sensitivity(
     )
 
     artifacts = {
-        "normal": normal,
-        "defective": defective,
-        "normal_missing": normal_missing,
-        "defect_missing": defect_missing,
-        "added_missing": added_missing,
-        "median_missing": median_missing,
+        "normal": (
+            normal
+        ),
+        "defective": (
+            defective
+        ),
+        "normal_missing": (
+            normal_missing
+        ),
+        "defect_missing": (
+            defect_missing
+        ),
+        "added_missing": (
+            added_missing
+        ),
+        "median_missing": (
+            median_missing
+        ),
         "normal_signed_z": (
             normal_signed_z.astype(
                 np.float32
@@ -1081,8 +1146,10 @@ def evaluate_sensitivity(
         "delta_robust_z_missing": (
             delta_robust_z_missing
         ),
-        "zone": zone.astype(
-            np.float32
+        "zone": (
+            zone.astype(
+                np.float32
+            )
         ),
     }
 
