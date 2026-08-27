@@ -209,10 +209,10 @@ def _right_edge_crossing_x(
     return x1 + fraction * (x2 - x1)
 
 
-def _tip1_signed_local_metrics(
+def _local_signed_boundary_metrics(
     signed_z: np.ndarray,
     alpha: np.ndarray,
-    tip1_zone: np.ndarray,
+    zone: np.ndarray,
     patch_radius: int = 1,
     max_reference_patches: int = 8,
     alpha_support_fraction: float = 0.05,
@@ -222,22 +222,24 @@ def _tip1_signed_local_metrics(
             "signed_z and alpha must have the same shape"
         )
 
-    if signed_z.shape != tip1_zone.shape:
+    if signed_z.shape != zone.shape:
         raise ValueError(
-            "signed_z and tip1_zone must have the same shape"
+            "signed_z and zone must have the same shape"
         )
 
     zone_weights = np.where(
-        tip1_zone,
+        zone,
         alpha,
         0.0,
     ).astype(np.float32)
 
-    total_weight = float(zone_weights.sum())
+    total_weight = float(
+        zone_weights.sum()
+    )
 
     candidate_pixel_count = int(
         np.count_nonzero(
-            (alpha > 0.0) & tip1_zone
+            (alpha > 0.0) & zone
         )
     )
 
@@ -282,21 +284,44 @@ def _tip1_signed_local_metrics(
         cy: int,
         cx: int,
     ) -> tuple[int, int, int, int]:
-        y0 = max(0, cy - patch_radius)
-        y1 = min(height, cy + patch_radius + 1)
-        x0 = max(0, cx - patch_radius)
-        x1 = min(width, cx + patch_radius + 1)
-
-        return y0, y1, x0, x1
-
-    candidate_y0, candidate_y1, candidate_x0, candidate_x1 = (
-        patch_bounds(
-            center_y,
-            center_x,
+        y0 = max(
+            0,
+            cy - patch_radius,
         )
+
+        y1 = min(
+            height,
+            cy + patch_radius + 1,
+        )
+
+        x0 = max(
+            0,
+            cx - patch_radius,
+        )
+
+        x1 = min(
+            width,
+            cx + patch_radius + 1,
+        )
+
+        return (
+            y0,
+            y1,
+            x0,
+            x1,
+        )
+
+    (
+        candidate_y0,
+        candidate_y1,
+        candidate_x0,
+        candidate_x1,
+    ) = patch_bounds(
+        center_y,
+        center_x,
     )
 
-    candidate_zone_patch = tip1_zone[
+    candidate_zone_patch = zone[
         candidate_y0:candidate_y1,
         candidate_x0:candidate_x1,
     ]
@@ -306,9 +331,11 @@ def _tip1_signed_local_metrics(
         candidate_x0:candidate_x1,
     ]
 
-    candidate_values = candidate_signed_patch[
-        candidate_zone_patch
-    ]
+    candidate_values = (
+        candidate_signed_patch[
+            candidate_zone_patch
+        ]
+    )
 
     if candidate_values.size == 0:
         return {
@@ -323,15 +350,22 @@ def _tip1_signed_local_metrics(
         }
 
     candidate_signed_z_median = float(
-        np.median(candidate_values)
+        np.median(
+            candidate_values
+        )
     )
 
-    alpha_max = float(alpha.max())
+    alpha_max = float(
+        alpha.max()
+    )
 
     if alpha_max > 0.0:
         alpha_support = (
             alpha
-            >= alpha_max * alpha_support_fraction
+            >= (
+                alpha_max
+                * alpha_support_fraction
+            )
         )
     else:
         alpha_support = np.zeros_like(
@@ -344,32 +378,48 @@ def _tip1_signed_local_metrics(
     ] = []
 
     reference_rows = np.flatnonzero(
-        tip1_zone[:, center_x]
+        zone[:, center_x]
     )
 
     for ref_y_raw in reference_rows:
-        ref_y = int(ref_y_raw)
+        ref_y = int(
+            ref_y_raw
+        )
 
-        if abs(ref_y - center_y) <= patch_radius:
+        if (
+            abs(
+                ref_y - center_y
+            )
+            <= patch_radius
+        ):
             continue
 
-        y0, y1, x0, x1 = patch_bounds(
+        (
+            y0,
+            y1,
+            x0,
+            x1,
+        ) = patch_bounds(
             ref_y,
             center_x,
         )
 
-        reference_zone_patch = tip1_zone[
+        reference_zone_patch = zone[
             y0:y1,
             x0:x1,
         ]
 
-        if not np.any(reference_zone_patch):
+        if not np.any(
+            reference_zone_patch
+        ):
             continue
 
-        reference_alpha_patch = alpha_support[
-            y0:y1,
-            x0:x1,
-        ]
+        reference_alpha_patch = (
+            alpha_support[
+                y0:y1,
+                x0:x1,
+            ]
+        )
 
         if np.any(
             reference_alpha_patch
@@ -377,20 +427,26 @@ def _tip1_signed_local_metrics(
         ):
             continue
 
-        reference_signed_patch = signed_z[
-            y0:y1,
-            x0:x1,
-        ]
+        reference_signed_patch = (
+            signed_z[
+                y0:y1,
+                x0:x1,
+            ]
+        )
 
-        reference_values = reference_signed_patch[
-            reference_zone_patch
-        ]
+        reference_values = (
+            reference_signed_patch[
+                reference_zone_patch
+            ]
+        )
 
         if reference_values.size == 0:
             continue
 
         reference_patch_median = float(
-            np.median(reference_values)
+            np.median(
+                reference_values
+            )
         )
 
         distance = abs(
@@ -408,9 +464,11 @@ def _tip1_signed_local_metrics(
         key=lambda item: item[0]
     )
 
-    selected_references = reference_candidates[
-        :max_reference_patches
-    ]
+    selected_references = (
+        reference_candidates[
+            :max_reference_patches
+        ]
+    )
 
     reference_patch_count = len(
         selected_references
@@ -447,10 +505,12 @@ def _tip1_signed_local_metrics(
         - reference_signed_z_median
     )
 
-    corrected_candidate_values = np.maximum(
-        candidate_values
-        - reference_signed_z_median,
-        0.0,
+    corrected_candidate_values = (
+        np.maximum(
+            candidate_values
+            - reference_signed_z_median,
+            0.0,
+        )
     )
 
     k = min(
@@ -471,10 +531,18 @@ def _tip1_signed_local_metrics(
         local_corrected_top3_sum = 0.0
 
     return {
-        "candidate_pixel_count": candidate_pixel_count,
-        "reference_patch_count": reference_patch_count,
-        "candidate_center_y": center_y,
-        "candidate_center_x": center_x,
+        "candidate_pixel_count": (
+            candidate_pixel_count
+        ),
+        "reference_patch_count": (
+            reference_patch_count
+        ),
+        "candidate_center_y": (
+            center_y
+        ),
+        "candidate_center_x": (
+            center_x
+        ),
         "candidate_signed_z_median": (
             candidate_signed_z_median
         ),
