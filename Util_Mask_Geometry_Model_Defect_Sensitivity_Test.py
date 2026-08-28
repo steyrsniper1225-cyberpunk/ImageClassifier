@@ -2250,19 +2250,22 @@ def main() -> None:
 
             score_zone_name: str | None = None
             
-            for tip_name in (
+            for zone_name in (
                 "tip1",
                 "tip2",
+                "charge1",
+                "charge2",
+                "charge3",
             ):
                 candidate_pixel_count = int(
                     row.get(
-                        f"defect_{tip_name}_candidate_pixel_count",
+                        f"defect_{zone_name}_candidate_pixel_count",
                         0,
                     )
                 )
             
                 if candidate_pixel_count > 0:
-                    score_zone_name = tip_name
+                    score_zone_name = zone_name
                     break
             
             if score_zone_name is not None:
