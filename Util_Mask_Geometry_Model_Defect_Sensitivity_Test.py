@@ -558,6 +558,369 @@ def _local_signed_boundary_metrics(
     }
 
 
+def _local_signed_2d_reference_metrics(
+    signed_z: np.ndarray,
+    alpha: np.ndarray,
+    zone: np.ndarray,
+    patch_radius: int = 1,
+    max_reference_patches: int = 8,
+    alpha_support_fraction: float = 0.05,
+) -> dict[str, float | int]:
+    if signed_z.shape != alpha.shape:
+        raise ValueError(
+            "signed_z and alpha must have the same shape"
+        )
+
+    if signed_z.shape != zone.shape:
+        raise ValueError(
+            "signed_z and zone must have the same shape"
+        )
+
+    zone_weights = np.where(
+        zone,
+        alpha,
+        0.0,
+    ).astype(np.float32)
+
+    total_weight = float(
+        zone_weights.sum()
+    )
+
+    candidate_pixel_count = int(
+        np.count_nonzero(
+            (alpha > 0.0) & zone
+        )
+    )
+
+    if total_weight <= 0.0:
+        return {
+            "candidate_pixel_count": candidate_pixel_count,
+            "reference_patch_count": 0,
+            "candidate_center_y": -1,
+            "candidate_center_x": -1,
+            "candidate_signed_z_median": 0.0,
+            "reference_signed_z_median": 0.0,
+            "local_signed_excess": 0.0,
+            "local_corrected_top3_sum": 0.0,
+        }
+
+    yy, xx = np.indices(
+        signed_z.shape,
+        dtype=np.float32,
+    )
+
+    center_y = int(
+        np.round(
+            float(
+                (yy * zone_weights).sum()
+                / total_weight
+            )
+        )
+    )
+
+    center_x = int(
+        np.round(
+            float(
+                (xx * zone_weights).sum()
+                / total_weight
+            )
+        )
+    )
+
+    height, width = signed_z.shape
+
+    def patch_bounds(
+        cy: int,
+        cx: int,
+    ) -> tuple[int, int, int, int]:
+        y0 = max(
+            0,
+            cy - patch_radius,
+        )
+
+        y1 = min(
+            height,
+            cy + patch_radius + 1,
+        )
+
+        x0 = max(
+            0,
+            cx - patch_radius,
+        )
+
+        x1 = min(
+            width,
+            cx + patch_radius + 1,
+        )
+
+        return (
+            y0,
+            y1,
+            x0,
+            x1,
+        )
+
+    (
+        candidate_y0,
+        candidate_y1,
+        candidate_x0,
+        candidate_x1,
+    ) = patch_bounds(
+        center_y,
+        center_x,
+    )
+
+    candidate_zone_patch = zone[
+        candidate_y0:candidate_y1,
+        candidate_x0:candidate_x1,
+    ]
+
+    candidate_signed_patch = signed_z[
+        candidate_y0:candidate_y1,
+        candidate_x0:candidate_x1,
+    ]
+
+    candidate_values = (
+        candidate_signed_patch[
+            candidate_zone_patch
+        ]
+    )
+
+    if candidate_values.size == 0:
+        return {
+            "candidate_pixel_count": candidate_pixel_count,
+            "reference_patch_count": 0,
+            "candidate_center_y": center_y,
+            "candidate_center_x": center_x,
+            "candidate_signed_z_median": 0.0,
+            "reference_signed_z_median": 0.0,
+            "local_signed_excess": 0.0,
+            "local_corrected_top3_sum": 0.0,
+        }
+
+    candidate_signed_z_median = float(
+        np.median(
+            candidate_values
+        )
+    )
+
+    alpha_max = float(
+        alpha.max()
+    )
+
+    if alpha_max > 0.0:
+        alpha_support = (
+            alpha
+            >= (
+                alpha_max
+                * alpha_support_fraction
+            )
+        )
+    else:
+        alpha_support = np.zeros_like(
+            alpha,
+            dtype=bool,
+        )
+
+    reference_candidates: list[
+        tuple[float, float]
+    ] = []
+
+    zone_coordinates = np.argwhere(
+        zone
+    )
+
+    minimum_center_distance = float(
+        patch_radius * 2 + 1
+    )
+
+    for ref_y_raw, ref_x_raw in zone_coordinates:
+        ref_y = int(
+            ref_y_raw
+        )
+
+        ref_x = int(
+            ref_x_raw
+        )
+
+        dy = float(
+            ref_y - center_y
+        )
+
+        dx = float(
+            ref_x - center_x
+        )
+
+        distance = float(
+            np.hypot(
+                dy,
+                dx,
+            )
+        )
+
+        if distance < minimum_center_distance:
+            continue
+
+        (
+            y0,
+            y1,
+            x0,
+            x1,
+        ) = patch_bounds(
+            ref_y,
+            ref_x,
+        )
+
+        reference_zone_patch = zone[
+            y0:y1,
+            x0:x1,
+        ]
+
+        if not np.any(
+            reference_zone_patch
+        ):
+            continue
+
+        reference_alpha_patch = (
+            alpha_support[
+                y0:y1,
+                x0:x1,
+            ]
+        )
+
+        if np.any(
+            reference_alpha_patch
+            & reference_zone_patch
+        ):
+            continue
+
+        reference_signed_patch = (
+            signed_z[
+                y0:y1,
+                x0:x1,
+            ]
+        )
+
+        reference_values = (
+            reference_signed_patch[
+                reference_zone_patch
+            ]
+        )
+
+        if reference_values.size == 0:
+            continue
+
+        reference_patch_median = float(
+            np.median(
+                reference_values
+            )
+        )
+
+        reference_candidates.append(
+            (
+                distance,
+                reference_patch_median,
+            )
+        )
+
+    reference_candidates.sort(
+        key=lambda item: item[0]
+    )
+
+    selected_references = (
+        reference_candidates[
+            :max_reference_patches
+        ]
+    )
+
+    reference_patch_count = len(
+        selected_references
+    )
+
+    if reference_patch_count == 0:
+        return {
+            "candidate_pixel_count": candidate_pixel_count,
+            "reference_patch_count": 0,
+            "candidate_center_y": center_y,
+            "candidate_center_x": center_x,
+            "candidate_signed_z_median": (
+                candidate_signed_z_median
+            ),
+            "reference_signed_z_median": 0.0,
+            "local_signed_excess": (
+                candidate_signed_z_median
+            ),
+            "local_corrected_top3_sum": 0.0,
+        }
+
+    reference_signed_z_median = float(
+        np.median(
+            [
+                value
+                for _, value
+                in selected_references
+            ]
+        )
+    )
+
+    local_signed_excess = float(
+        candidate_signed_z_median
+        - reference_signed_z_median
+    )
+
+    corrected_candidate_values = (
+        np.maximum(
+            candidate_values
+            - reference_signed_z_median,
+            0.0,
+        )
+    )
+
+    k = min(
+        3,
+        corrected_candidate_values.size,
+    )
+
+    if k > 0:
+        top_values = np.partition(
+            corrected_candidate_values,
+            corrected_candidate_values.size - k,
+        )[-k:]
+
+        local_corrected_top3_sum = float(
+            top_values.sum()
+        )
+    else:
+        local_corrected_top3_sum = 0.0
+
+    return {
+        "candidate_pixel_count": (
+            candidate_pixel_count
+        ),
+        "reference_patch_count": (
+            reference_patch_count
+        ),
+        "candidate_center_y": (
+            center_y
+        ),
+        "candidate_center_x": (
+            center_x
+        ),
+        "candidate_signed_z_median": (
+            candidate_signed_z_median
+        ),
+        "reference_signed_z_median": (
+            reference_signed_z_median
+        ),
+        "local_signed_excess": (
+            local_signed_excess
+        ),
+        "local_corrected_top3_sum": (
+            local_corrected_top3_sum
+        ),
+    }
+
+
 def _patch_top3_sum(
     robust_z: np.ndarray,
     center_y: int,
@@ -831,6 +1194,13 @@ def evaluate_sensitivity(
         ),
     }
 
+    # ========================================================
+    # Tip1 / Tip2
+    #
+    # 검증 완료된 동일-x / y-direction local reference 방식.
+    # 기존 동작을 변경하지 않는다.
+    # ========================================================
+
     for tip_name in (
         "tip1",
         "tip2",
@@ -921,6 +1291,102 @@ def evaluate_sensitivity(
             )
         )
 
+    # ========================================================
+    # Charge1 POC
+    #
+    # Tip과 달리 boundary direction을 미리 가정하지 않는다.
+    # Charge1 zone 안에서 candidate와 가까운 정상 2D patch를
+    # local reference로 사용한다.
+    # ========================================================
+
+    charge1_zone = defect_zones[
+        "charge1"
+    ]
+
+    normal_charge1_metrics = (
+        _local_signed_2d_reference_metrics(
+            normal_signed_z,
+            alpha,
+            charge1_zone,
+        )
+    )
+
+    defect_charge1_metrics = (
+        _local_signed_2d_reference_metrics(
+            defect_signed_z,
+            alpha,
+            charge1_zone,
+        )
+    )
+
+    for (
+        metric_name,
+        value,
+    ) in normal_charge1_metrics.items():
+        row[
+            f"normal_charge1_{metric_name}"
+        ] = value
+
+    for (
+        metric_name,
+        value,
+    ) in defect_charge1_metrics.items():
+        row[
+            f"defect_charge1_{metric_name}"
+        ] = value
+
+    row[
+        "paired_charge1_"
+        "candidate_signed_z_shift"
+    ] = (
+        float(
+            defect_charge1_metrics[
+                "candidate_signed_z_median"
+            ]
+        )
+        - float(
+            normal_charge1_metrics[
+                "candidate_signed_z_median"
+            ]
+        )
+    )
+
+    row[
+        "paired_charge1_"
+        "local_signed_excess_shift"
+    ] = (
+        float(
+            defect_charge1_metrics[
+                "local_signed_excess"
+            ]
+        )
+        - float(
+            normal_charge1_metrics[
+                "local_signed_excess"
+            ]
+        )
+    )
+
+    row[
+        "paired_charge1_"
+        "local_corrected_top3_shift"
+    ] = (
+        float(
+            defect_charge1_metrics[
+                "local_corrected_top3_sum"
+            ]
+        )
+        - float(
+            normal_charge1_metrics[
+                "local_corrected_top3_sum"
+            ]
+        )
+    )
+
+    # ========================================================
+    # 기존 zone별 Robust-Z metrics
+    # ========================================================
+
     for (
         zone_name,
         zone_mask,
@@ -976,6 +1442,10 @@ def evaluate_sensitivity(
                 f"_robust_z_{metric_name}"
             ] = value
 
+    # ========================================================
+    # 기존 global score
+    # ========================================================
+
     score_fields = (
         "center_rmse",
         "mean_robust_z",
@@ -1020,6 +1490,10 @@ def evaluate_sensitivity(
             float(defect_value)
             - float(normal_value)
         )
+
+    # ========================================================
+    # 기존 injected evaluation zone metrics
+    # ========================================================
 
     for prefix, metrics in (
         (
