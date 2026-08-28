@@ -1368,7 +1368,7 @@ def evaluate_sensitivity(
     ]
 
     normal_charge1_metrics = (
-        _local_signed_2d_reference_metrics(
+        _local_signed_boundary_metrics(
             normal_signed_z,
             alpha,
             charge1_zone,
@@ -1376,7 +1376,7 @@ def evaluate_sensitivity(
     )
 
     defect_charge1_metrics = (
-        _local_signed_2d_reference_metrics(
+        _local_signed_boundary_metrics(
             defect_signed_z,
             alpha,
             charge1_zone,
