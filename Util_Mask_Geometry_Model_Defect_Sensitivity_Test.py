@@ -602,6 +602,8 @@ def _local_signed_2d_reference_metrics(
             "reference_signed_z_median": 0.0,
             "local_signed_excess": 0.0,
             "local_corrected_top3_sum": 0.0,
+            "local_corrected_support_top3_sum": 0.0,
+            "local_corrected_support_top5_sum": 0.0,
         }
 
     yy, xx = np.indices(
@@ -696,6 +698,8 @@ def _local_signed_2d_reference_metrics(
             "reference_signed_z_median": 0.0,
             "local_signed_excess": 0.0,
             "local_corrected_top3_sum": 0.0,
+            "local_corrected_support_top3_sum": 0.0,
+            "local_corrected_support_top5_sum": 0.0,
         }
 
     candidate_signed_z_median = float(
@@ -851,6 +855,8 @@ def _local_signed_2d_reference_metrics(
                 candidate_signed_z_median
             ),
             "local_corrected_top3_sum": 0.0,
+            "local_corrected_support_top3_sum": 0.0,
+            "local_corrected_support_top5_sum": 0.0,
         }
 
     reference_signed_z_median = float(
@@ -867,6 +873,58 @@ def _local_signed_2d_reference_metrics(
         candidate_signed_z_median
         - reference_signed_z_median
     )
+    
+    support_mask = (
+        alpha_support
+        & zone
+    )
+    
+    support_values = signed_z[
+        support_mask
+    ]
+    
+    corrected_support_values = np.maximum(
+        support_values
+        - reference_signed_z_median,
+        0.0,
+    )
+    
+    support_top3_k = min(
+        3,
+        corrected_support_values.size,
+    )
+    
+    if support_top3_k > 0:
+        support_top3_values = np.partition(
+            corrected_support_values,
+            corrected_support_values.size
+            - support_top3_k,
+        )[-support_top3_k:]
+    
+        local_corrected_support_top3_sum = float(
+            support_top3_values.sum()
+        )
+    else:
+        local_corrected_support_top3_sum = 0.0
+    
+    
+    support_top5_k = min(
+        5,
+        corrected_support_values.size,
+    )
+    
+    if support_top5_k > 0:
+        support_top5_values = np.partition(
+            corrected_support_values,
+            corrected_support_values.size
+            - support_top5_k,
+        )[-support_top5_k:]
+    
+        local_corrected_support_top5_sum = float(
+            support_top5_values.sum()
+        )
+    else:
+        local_corrected_support_top5_sum = 0.0
 
     corrected_candidate_values = (
         np.maximum(
@@ -917,6 +975,12 @@ def _local_signed_2d_reference_metrics(
         ),
         "local_corrected_top3_sum": (
             local_corrected_top3_sum
+        ),
+        "local_corrected_support_top3_sum": (
+            local_corrected_support_top3_sum
+        ),
+        "local_corrected_support_top5_sum": (
+            local_corrected_support_top5_sum
         ),
     }
 
