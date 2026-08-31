@@ -1363,85 +1363,89 @@ def evaluate_sensitivity(
     # local reference로 사용한다.
     # ========================================================
 
-    charge1_zone = defect_zones[
-        "charge1"
-    ]
-
-    normal_charge1_metrics = (
-        _local_signed_boundary_metrics(
-            normal_signed_z,
-            alpha,
-            charge1_zone,
+    for charge_name in (
+        "charge1",
+        "charge2",
+    ):
+        charge_zone = defect_zones[
+            charge_name
+        ]
+    
+        normal_charge_metrics = (
+            _local_signed_boundary_metrics(
+                normal_signed_z,
+                alpha,
+                charge_zone,
+            )
         )
-    )
-
-    defect_charge1_metrics = (
-        _local_signed_boundary_metrics(
-            defect_signed_z,
-            alpha,
-            charge1_zone,
+    
+        defect_charge_metrics = (
+            _local_signed_boundary_metrics(
+                defect_signed_z,
+                alpha,
+                charge_zone,
+            )
         )
-    )
-
-    for (
-        metric_name,
-        value,
-    ) in normal_charge1_metrics.items():
+    
+        for metric_name, value in (
+            normal_charge_metrics.items()
+        ):
+            row[
+                f"normal_{charge_name}_"
+                f"{metric_name}"
+            ] = value
+    
+        for metric_name, value in (
+            defect_charge_metrics.items()
+        ):
+            row[
+                f"defect_{charge_name}_"
+                f"{metric_name}"
+            ] = value
+    
         row[
-            f"normal_charge1_{metric_name}"
-        ] = value
-
-    for (
-        metric_name,
-        value,
-    ) in defect_charge1_metrics.items():
+            f"paired_{charge_name}_"
+            "candidate_signed_z_shift"
+        ] = (
+            float(
+                defect_charge_metrics[
+                    "candidate_signed_z_median"
+                ]
+            )
+            - float(
+                normal_charge_metrics[
+                    "candidate_signed_z_median"
+                ]
+            )
+        )
+    
         row[
-            f"defect_charge1_{metric_name}"
-        ] = value
+            f"paired_{charge_name}_"
+            "local_signed_excess_shift"
+        ] = (
+            float(
+                defect_charge_metrics[
+                    "local_signed_excess"
+                ]
+            )
+            - float(
+                normal_charge_metrics[
+                    "local_signed_excess"
+                ]
+            )
+        )
 
     row[
-        "paired_charge1_"
-        "candidate_signed_z_shift"
-    ] = (
-        float(
-            defect_charge1_metrics[
-                "candidate_signed_z_median"
-            ]
-        )
-        - float(
-            normal_charge1_metrics[
-                "candidate_signed_z_median"
-            ]
-        )
-    )
-
-    row[
-        "paired_charge1_"
-        "local_signed_excess_shift"
-    ] = (
-        float(
-            defect_charge1_metrics[
-                "local_signed_excess"
-            ]
-        )
-        - float(
-            normal_charge1_metrics[
-                "local_signed_excess"
-            ]
-        )
-    )
-
-    row[
-        "paired_charge1_"
+        f"paired_{charge_name}_"
         "local_corrected_top3_shift"
     ] = (
         float(
-            defect_charge1_metrics[
+            defect_charge_metrics[
                 "local_corrected_top3_sum"
             ]
         )
         - float(
-            normal_charge1_metrics[
+            normal_charge_metrics[
                 "local_corrected_top3_sum"
             ]
         )
