@@ -658,6 +658,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1,
     )
+    parser.add_argument(
+        "--reference-guard-px",
+        type=int,
+        default=9,
+    )
 
     return parser.parse_known_args()[0]
 
@@ -667,6 +672,20 @@ def main() -> None:
 
     if args.review_count < 0:
         raise ValueError("--review-count must be non-negative")
+
+    minimum_non_overlap_distance = (
+    2 * args.patch_radius + 1
+    )
+    
+    if (
+        args.reference_guard_px
+        < minimum_non_overlap_distance
+    ):
+        raise ValueError(
+            "--reference-guard-px must be at least "
+            f"{minimum_non_overlap_distance} "
+            "for the selected patch radius"
+        )
 
     if args.max_images is not None and args.max_images <= 0:
         raise ValueError("--max-images must be positive")
@@ -726,6 +745,9 @@ def main() -> None:
         minimum_reference_patches=args.minimum_reference_patches,
         top_k=3,
         keep_top_candidates=10,
+        minimum_reference_center_distance=(
+            args.reference_guard_px
+        ),
     )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
