@@ -19,9 +19,12 @@ import numpy as np
 from PIL import Image, ImageDraw
 from tqdm.auto import tqdm
 
+
 from Mask_Geometry_Model_Oracle_Free_Scoring import (
     LocalScanConfig,
     LocalZoneScanResult,
+    compute_signed_z,
+    score_local_candidate_at_center,
     score_mask_oracle_free,
 )
 from Mask_Normal_Alignment import discover_masks, load_soft_mask
@@ -362,6 +365,216 @@ def _alpha_localization_metrics(
         "best_distance_to_alpha_px": distance,
         "best_candidate_hits_alpha": hits_alpha,
     }
+
+
+def _alpha_near_candidate_diagnostic(
+    normal: np.ndarray,
+    defective: np.ndarray,
+    alpha: np.ndarray,
+    zone: np.ndarray,
+    model: GeometryModel,
+    robust_sigma_floor: float,
+    defect_result: LocalZoneScanResult,
+    scan_config: LocalScanConfig,
+) -> dict[str, Any]:
+    normal_signed_z = compute_signed_z(
+        observed=normal,
+        model=model,
+        robust_sigma_floor=robust_sigma_floor,
+    )
+
+    defect_signed_z = compute_signed_z(
+        observed=defective,
+        model=model,
+        robust_sigma_floor=robust_sigma_floor,
+    )
+
+    alpha_max = float(
+        alpha.max()
+    )
+
+    if alpha_max > 0.0:
+        alpha_support = (
+            alpha
+            >= alpha_max * 0.05
+        )
+    else:
+        alpha_support = np.zeros_like(
+            alpha,
+            dtype=bool,
+        )
+
+    alpha_zone_support = (
+        alpha_support
+        & zone
+    )
+
+    delta_signed_z = (
+        defect_signed_z
+        - normal_signed_z
+    )
+
+    delta_values = delta_signed_z[
+        alpha_zone_support
+    ]
+
+    if delta_values.size:
+        alpha_zone_delta_median = float(
+            np.median(delta_values)
+        )
+
+        alpha_zone_delta_max = float(
+            delta_values.max()
+        )
+    else:
+        alpha_zone_delta_median = float(
+            "nan"
+        )
+
+        alpha_zone_delta_max = float(
+            "nan"
+        )
+
+    radius = (
+        scan_config.patch_radius
+    )
+
+    kernel_size = (
+        2 * radius + 1
+    )
+
+    near_alpha = cv2.dilate(
+        alpha_support.astype(
+            np.uint8
+        ),
+        np.ones(
+            (
+                kernel_size,
+                kernel_size,
+            ),
+            dtype=np.uint8,
+        ),
+        iterations=1,
+    ).astype(bool)
+
+    valid_score_pixels = (
+        near_alpha
+        & np.isfinite(
+            defect_result.score_map
+        )
+    )
+
+    valid_candidate_count = int(
+        np.count_nonzero(
+            valid_score_pixels
+        )
+    )
+
+    output: dict[str, Any] = {
+        "alpha_zone_support_pixel_count": int(
+            np.count_nonzero(
+                alpha_zone_support
+            )
+        ),
+        "alpha_zone_delta_signed_z_median": (
+            alpha_zone_delta_median
+        ),
+        "alpha_zone_delta_signed_z_max": (
+            alpha_zone_delta_max
+        ),
+        "alpha_near_valid_candidate_count": (
+            valid_candidate_count
+        ),
+        "alpha_near_zone_score": float(
+            "nan"
+        ),
+        "alpha_near_best_y": -1,
+        "alpha_near_best_x": -1,
+        "alpha_near_candidate_pixel_count": 0,
+        "alpha_near_reference_patch_count": 0,
+        "alpha_near_candidate_signed_z_median": float(
+            "nan"
+        ),
+        "alpha_near_reference_signed_z_median": float(
+            "nan"
+        ),
+        "alpha_near_local_signed_excess": float(
+            "nan"
+        ),
+        "alpha_near_local_corrected_top3_sum": float(
+            "nan"
+        ),
+    }
+
+    if valid_candidate_count == 0:
+        return output
+
+    restricted_scores = np.where(
+        valid_score_pixels,
+        defect_result.score_map,
+        -np.inf,
+    )
+
+    flat_index = int(
+        np.argmax(
+            restricted_scores
+        )
+    )
+
+    center_y, center_x = np.unravel_index(
+        flat_index,
+        restricted_scores.shape,
+    )
+
+    candidate = (
+        score_local_candidate_at_center(
+            signed_z=defect_signed_z,
+            zone=zone,
+            center_y=int(center_y),
+            center_x=int(center_x),
+            config=scan_config,
+        )
+    )
+
+    if candidate is None:
+        return output
+
+    output.update(
+        {
+            "alpha_near_zone_score": float(
+                restricted_scores[
+                    center_y,
+                    center_x,
+                ]
+            ),
+            "alpha_near_best_y": int(
+                center_y
+            ),
+            "alpha_near_best_x": int(
+                center_x
+            ),
+            "alpha_near_candidate_pixel_count": (
+                candidate.candidate_pixel_count
+            ),
+            "alpha_near_reference_patch_count": (
+                candidate.reference_patch_count
+            ),
+            "alpha_near_candidate_signed_z_median": (
+                candidate.candidate_signed_z_median
+            ),
+            "alpha_near_reference_signed_z_median": (
+                candidate.reference_signed_z_median
+            ),
+            "alpha_near_local_signed_excess": (
+                candidate.local_signed_excess
+            ),
+            "alpha_near_local_corrected_top3_sum": (
+                candidate.local_corrected_top3_sum
+            ),
+        }
+    )
+
+    return output
 
 
 def _gray_rgb(array: np.ndarray) -> np.ndarray:
@@ -827,6 +1040,21 @@ def main() -> None:
                 result=defect_result,
                 patch_radius=scan_config.patch_radius,
             )
+            
+            alpha_near_diagnostic = (
+                _alpha_near_candidate_diagnostic(
+                    normal=normal,
+                    defective=defective,
+                    alpha=alpha,
+                    zone=zone,
+                    model=model,
+                    robust_sigma_floor=(
+                        model_config.robust_sigma_floor
+                    ),
+                    defect_result=defect_result,
+                    scan_config=scan_config,
+                )
+            )
 
             pair_row: dict[str, Any] = {
                 "source_name": path.name,
@@ -844,8 +1072,17 @@ def main() -> None:
             pair_row.update(
                 _best_candidate_fields("defect", defect_result)
             )
-            pair_row.update(localization)
-            pair_row["paired_zone_score_shift"] = float(
+            pair_row.update(
+                localization
+            )
+            
+            pair_row.update(
+                alpha_near_diagnostic
+            )
+            
+            pair_row[
+                "paired_zone_score_shift"
+            ] = float(
                 defect_result.zone_score
                 - normal_result.zone_score
             )
