@@ -187,9 +187,6 @@ def score_local_candidate_at_center(
     ):
         return None
 
-    if not bool(zone[center_y, center_x]):
-        return None
-
     y0, y1, x0, x1 = _patch_bounds(
         signed_z.shape,
         center_y,
@@ -321,6 +318,7 @@ def scan_local_zone(
     signed_z: np.ndarray,
     zone: np.ndarray,
     config: LocalScanConfig,
+    candidate_center_mask = (np.ndarray | None) = None,
 ) -> LocalZoneScanResult:
     """Scan all eligible centres and return the maximum local score."""
     _validate_scan_config(config)
@@ -333,7 +331,36 @@ def scan_local_zone(
     if not np.any(zone):
         raise ValueError(f"{config.zone_name}: zone mask is empty")
 
-    candidate_centers = np.argwhere(zone)
+    if candidate_center_mask is None:
+        scan_mask = zone
+    else:
+        if (
+            candidate_center_mask.shape
+            != signed_z.shape
+        ):
+            raise ValueError(
+                "candidate_center_mask and "
+                "signed_z must have the same shape"
+            )
+    
+        scan_mask = (
+            candidate_center_mask.astype(
+                bool,
+                copy=False,
+            )
+        )
+    
+        if not np.any(
+            scan_mask
+        ):
+            raise ValueError(
+                f"{config.zone_name}: "
+                "candidate center mask is empty"
+            )
+    
+    candidate_centers = np.argwhere(
+        scan_mask
+    )
     score_map = np.full(
         signed_z.shape,
         np.nan,
@@ -409,6 +436,7 @@ def score_mask_oracle_free(
     robust_sigma_floor: float,
     zone: np.ndarray,
     config: LocalScanConfig,
+    candidate_center_mask : (np.ndarray | None) = None,
 ) -> LocalZoneScanResult:
     """Compute signed-Z and perform inference-safe local-zone scanning."""
     signed_z = compute_signed_z(
@@ -421,4 +449,5 @@ def score_mask_oracle_free(
         signed_z=signed_z,
         zone=zone,
         config=config,
+        candidate_center_mask = (candidate_center_mask),
     )
