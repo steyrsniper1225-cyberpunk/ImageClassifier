@@ -927,6 +927,16 @@ def main() -> None:
         args.zone_name,
         model.median.shape,
     )
+    
+    candidate_center_mask = np.zeros(
+        model.median.shape,
+        dtype=bool,
+    )
+    
+    candidate_center_mask[
+        68:73,
+        164:169,
+    ] = True
 
     defects, _ = load_defect_config(args.defect_config)
 
@@ -988,6 +998,7 @@ def main() -> None:
             robust_sigma_floor=model_config.robust_sigma_floor,
             zone=zone,
             config=scan_config,
+            candidate_center_mask = (candidate_center_mask),
         )
 
         if normal_result.best_candidate is None:
@@ -1026,6 +1037,7 @@ def main() -> None:
                 robust_sigma_floor=model_config.robust_sigma_floor,
                 zone=zone,
                 config=scan_config,
+                candidate_center_mask = (candidate_center_mask),
             )
 
             if defect_result.best_candidate is None:
@@ -1285,6 +1297,7 @@ def main() -> None:
                     ),
                     zone=zone,
                     config=scan_config,
+                    candidate_center_mask = (candidate_center_mask),
                 )
                 defect_result = score_mask_oracle_free(
                     observed=defective,
@@ -1294,6 +1307,7 @@ def main() -> None:
                     ),
                     zone=zone,
                     config=scan_config,
+                    candidate_center_mask = (candidate_center_mask),
                 )
 
                 filename = (
