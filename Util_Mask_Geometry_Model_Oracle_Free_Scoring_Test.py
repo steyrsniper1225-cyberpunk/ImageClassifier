@@ -1106,6 +1106,26 @@ def main() -> None:
                     scan_config=scan_config,
                 )
             )
+            
+            diagnostic_top3 = float(
+                alpha_near_diagnostic[
+                    "alpha_near_local_corrected_top3_sum"
+                ]
+            )
+            
+            if (
+                np.isfinite(diagnostic_top3)
+                and diagnostic_top3
+                > float(defect_result.zone_score) + 1e-6
+            ):
+                raise RuntimeError(
+                    "Oracle-free scan inconsistency: "
+                    f"alpha-near candidate={diagnostic_top3:.6f}, "
+                    f"defect zone maximum="
+                    f"{float(defect_result.zone_score):.6f}. "
+                    "Check that defect_result uses "
+                    "observed=defective and restart the kernel."
+                )
 
             pair_row: dict[str, Any] = {
                 "source_name": path.name,
