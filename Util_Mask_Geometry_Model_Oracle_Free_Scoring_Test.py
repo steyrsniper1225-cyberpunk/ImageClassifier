@@ -849,7 +849,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--zone-name",
-        choices=("tip1",),
+        choices=("tip1, tip2",),
         default="tip1",
     )
     parser.add_argument("--recursive", action="store_true")
@@ -928,15 +928,47 @@ def main() -> None:
         model.median.shape,
     )
     
-    candidate_center_mask = np.zeros(
-        model.median.shape,
-        dtype=bool,
-    )
+        candidate_center_bounds = {
+            "tip1": (
+                68,
+                73,
+                164,
+                169,
+            ),
+            "tip2": (
+                138,
+                143,
+                163,
+                168,
+            ),
+        }
     
-    candidate_center_mask[
-        68:73,
-        164:169,
-    ] = True
+        (
+            candidate_y0,
+            candidate_y1,
+            candidate_x0,
+            candidate_x1,
+        ) = candidate_center_bounds[
+            args.zone_name
+        ]
+    
+        candidate_center_mask = np.zeros_like(
+            zone,
+            dtype=bool,
+        )
+    
+        candidate_center_mask[
+            candidate_y0:candidate_y1,
+            candidate_x0:candidate_x1,
+        ] = True
+    
+        candidate_center_mask &= zone
+    
+        if not np.any(candidate_center_mask):
+            raise RuntimeError(
+                f"{args.zone_name}: candidate-center "
+                "mask does not overlap the local zone"
+            )
 
     defects, _ = load_defect_config(args.defect_config)
 
@@ -971,6 +1003,7 @@ def main() -> None:
         minimum_reference_center_distance=(
             args.reference_guard_px
         ),
+        minimum_caninical_patch_mass=0.0,
     )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
