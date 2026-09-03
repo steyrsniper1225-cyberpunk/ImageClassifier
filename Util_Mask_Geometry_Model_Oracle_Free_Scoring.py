@@ -32,6 +32,7 @@ class LocalScanConfig:
     top_k: int = 3
     keep_top_candidates: int = 10
     minimum_reference_center_distance: int | None = None
+    minimum_canonical_patch_mass: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,19 @@ def _validate_scan_config(config: LocalScanConfig) -> None:
     ):
         raise ValueError(
             "minimum_reference_center_distance must be positive"
+        )
+        
+    if not np.isfinite(
+        config.minimum_canonical_patch_mass
+    ):
+        raise ValueError(
+            "minimum_canonical_patch_mass must be finite"
+        )
+
+    if config.minimum_canonical_patch_mass < 0.0:
+        raise ValueError(
+            "minimum_canonical_patch_mass "
+            "must be non-negative"
         )
 
 
@@ -317,6 +331,7 @@ def score_local_candidate_at_center(
 def scan_local_zone(
     signed_z: np.ndarray,
     zone: np.ndarray,
+    canonical_median: np.ndarray,
     config: LocalScanConfig,
     candidate_center_mask = (np.ndarray | None) = None,
 ) -> LocalZoneScanResult:
@@ -325,6 +340,17 @@ def scan_local_zone(
 
     if signed_z.shape != zone.shape:
         raise ValueError("signed_z and zone must have the same shape")
+    
+    if canonical_median.shape != signed_z.shape:
+        raise ValueError(
+            "canonical_median and signed_z "
+            "must have the same shape"
+        )
+
+    if not np.isfinite(canonical_median).all():
+        raise ValueError(
+            "canonical_median contains non-finite values"
+        )
 
     zone = zone.astype(bool, copy=False)
 
@@ -370,11 +396,43 @@ def scan_local_zone(
     valid_candidates: list[LocalCandidateScore] = []
 
     for center_y_raw, center_x_raw in candidate_centers:
+        center_y = int(center_y_raw)
+        center_x = int(center_x_raw)
+
+        y0, y1, x0, x1 = _patch_bounds(
+            signed_z.shape,
+            center_y,
+            center_x,
+            config.patch_radius,
+        )
+
+        candidate_zone_patch = zone[
+            y0:y1,
+            x0:x1,
+        ]
+
+        canonical_patch = canonical_median[
+            y0:y1,
+            x0:x1,
+        ]
+
+        canonical_patch_mass = float(
+            canonical_patch[
+                candidate_zone_patch
+            ].sum()
+        )
+
+        if (
+            canonical_patch_mass
+            < config.minimum_canonical_patch_mass
+        ):
+            continue
+        
         candidate = score_local_candidate_at_center(
             signed_z=signed_z,
             zone=zone,
-            center_y=int(center_y_raw),
-            center_x=int(center_x_raw),
+            center_y=center_y
+            center_x=center_x,
             config=config,
         )
 
@@ -448,6 +506,7 @@ def score_mask_oracle_free(
     return scan_local_zone(
         signed_z=signed_z,
         zone=zone,
+        canonical_median=model.median,
         config=config,
         candidate_center_mask = (candidate_center_mask),
     )
