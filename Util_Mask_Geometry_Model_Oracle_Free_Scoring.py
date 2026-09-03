@@ -510,3 +510,89 @@ def score_mask_oracle_free(
         config=config,
         candidate_center_mask = (candidate_center_mask),
     )
+
+
+def score_mask_all_zones(
+    observed: np.ndarray,
+    model: GeometryModel,
+    robust_sigma_floor: float,
+    zones: dict[str, np.ndarray],
+    configs: dict[str, LocalScanConfig],
+    candidate_center_masks: dict[
+        str,
+        np.ndarray,
+    ],
+) -> dict[str, LocalZoneScanResult]:
+    """Score all configured zones from one shared signed-Z map."""
+    if not configs:
+        raise ValueError(
+            "configs must contain at least one zone"
+        )
+
+    config_names = set(configs)
+    zone_names = set(zones)
+    candidate_mask_names = set(
+        candidate_center_masks
+    )
+
+    missing_zones = (
+        config_names
+        - zone_names
+    )
+
+    missing_candidate_masks = (
+        config_names
+        - candidate_mask_names
+    )
+
+    if missing_zones:
+        raise ValueError(
+            "Missing zone masks: "
+            f"{sorted(missing_zones)}"
+        )
+
+    if missing_candidate_masks:
+        raise ValueError(
+            "Missing candidate-center masks: "
+            f"{sorted(missing_candidate_masks)}"
+        )
+
+    signed_z = compute_signed_z(
+        observed=observed,
+        model=model,
+        robust_sigma_floor=(
+            robust_sigma_floor
+        ),
+    )
+
+    results: dict[
+        str,
+        LocalZoneScanResult,
+    ] = {}
+
+    for zone_name, config in configs.items():
+        if config.zone_name != zone_name:
+            raise ValueError(
+                "Zone config name mismatch: "
+                f"dictionary key={zone_name}, "
+                f"config.zone_name="
+                f"{config.zone_name}"
+            )
+
+        results[zone_name] = (
+            scan_local_zone(
+                signed_z=signed_z,
+                zone=zones[zone_name],
+                canonical_median=(
+                    model.median
+                ),
+                config=config,
+                candidate_center_mask=(
+                    candidate_center_masks[
+                        zone_name
+                    ]
+                ),
+            )
+        )
+
+    return results
