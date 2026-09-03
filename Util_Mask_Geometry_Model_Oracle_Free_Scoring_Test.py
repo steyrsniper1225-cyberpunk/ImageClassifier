@@ -928,47 +928,47 @@ def main() -> None:
         model.median.shape,
     )
     
-        candidate_center_bounds = {
-            "tip1": (
-                68,
-                73,
-                164,
-                169,
-            ),
-            "tip2": (
-                138,
-                143,
-                163,
-                168,
-            ),
-        }
+    candidate_center_bounds = {
+        "tip1": (
+            68,
+            73,
+            164,
+            169,
+        ),
+        "tip2": (
+            138,
+            143,
+            163,
+            168,
+        ),
+    }
     
-        (
-            candidate_y0,
-            candidate_y1,
-            candidate_x0,
-            candidate_x1,
-        ) = candidate_center_bounds[
-            args.zone_name
-        ]
+    (
+        candidate_y0,
+        candidate_y1,
+        candidate_x0,
+        candidate_x1,
+    ) = candidate_center_bounds[
+        args.zone_name
+    ]
     
-        candidate_center_mask = np.zeros_like(
-            zone,
-            dtype=bool,
+    candidate_center_mask = np.zeros_like(
+        zone,
+        dtype=bool,
+    )
+    
+    candidate_center_mask[
+        candidate_y0:candidate_y1,
+        candidate_x0:candidate_x1,
+    ] = True
+    
+    candidate_center_mask &= zone
+    
+    if not np.any(candidate_center_mask):
+        raise RuntimeError(
+            f"{args.zone_name}: candidate-center "
+            "mask does not overlap the local zone"
         )
-    
-        candidate_center_mask[
-            candidate_y0:candidate_y1,
-            candidate_x0:candidate_x1,
-        ] = True
-    
-        candidate_center_mask &= zone
-    
-        if not np.any(candidate_center_mask):
-            raise RuntimeError(
-                f"{args.zone_name}: candidate-center "
-                "mask does not overlap the local zone"
-            )
 
     defects, _ = load_defect_config(args.defect_config)
 
@@ -993,7 +993,7 @@ def main() -> None:
 
     scan_config = LocalScanConfig(
         zone_name=args.zone_name,
-        score_feature="local_corrected_top3_sum",
+        score_feature="local_signed_excess",
         patch_radius=args.patch_radius,
         max_reference_patches=args.max_reference_patches,
         minimum_candidate_pixels=args.minimum_candidate_pixels,
