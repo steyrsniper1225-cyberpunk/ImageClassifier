@@ -849,8 +849,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--zone-name",
-        choices=("tip1, tip2",),
-        default="tip1",
+        choices=("tip1, tip2", "charge1", "charge2", "charge3"),
+        default="charge3",
     )
     parser.add_argument("--recursive", action="store_true")
     parser.add_argument("--max-images", type=int, default=None)
@@ -953,6 +953,11 @@ def main() -> None:
             186,
             191,
         ),
+        "charge3": (
+            248,
+            253,
+            188,
+            193,
     }
     
     (
@@ -1005,7 +1010,7 @@ def main() -> None:
 
     scan_config = LocalScanConfig(
         zone_name=args.zone_name,
-        score_feature="local_signed_excess",
+        score_feature="local_corrected_top3_sum",
         patch_radius=args.patch_radius,
         max_reference_patches=args.max_reference_patches,
         minimum_candidate_pixels=args.minimum_candidate_pixels,
