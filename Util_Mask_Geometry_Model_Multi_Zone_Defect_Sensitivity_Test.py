@@ -1149,11 +1149,23 @@ def main() -> None:
                     ),
                 )
 
-    zone_score_stats = {
+    normal_zone_score_stats = {
         zone_name: _stats(
             float(
                 row[
-                    f"{zone_name}_zone_score"
+                    f"normal_{zone_name}_zone_score"
+                ]
+            )
+            for row in pair_rows
+        )
+        for zone_name in ZONE_NAMES
+    }
+    
+    defect_zone_score_stats = {
+        zone_name: _stats(
+            float(
+                row[
+                    f"defect_{zone_name}_zone_score"
                 ]
             )
             for row in pair_rows
@@ -1227,8 +1239,11 @@ def main() -> None:
             }
             for zone_name in ZONE_NAMES
         },
-        "zone_score_stats": (
-            zone_score_stats
+        "normal_zone_score_stats": (
+            normal_zone_score_stats
+        ),
+        "defect_zone_score_stats": (
+            defect_zone_score_stats
         ),
         "artifacts": {
             "scores_csv": str(
