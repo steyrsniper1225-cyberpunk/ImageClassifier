@@ -1082,7 +1082,7 @@ def main() -> None:
 
     csv_path = (
         args.output_dir
-        / "multi_zone_oracle_free_scores.csv"
+        / "multi_zone_injected_defect_results.csv"
     )
 
     with csv_path.open(
@@ -1093,12 +1093,12 @@ def main() -> None:
         writer = csv.DictWriter(
             handle,
             fieldnames=list(
-                rows[0]
+                pair_rows[0]
             ),
         )
 
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(pair_rows)
 
     review_root = (
         args.output_dir
@@ -1156,7 +1156,7 @@ def main() -> None:
                     f"{zone_name}_zone_score"
                 ]
             )
-            for row in rows
+            for row in pair_rows
         )
         for zone_name in ZONE_NAMES
     }
@@ -1174,7 +1174,7 @@ def main() -> None:
             "local geometry scoring"
         ),
         "threshold_applied": False,
-        "image_count": len(rows),
+        "image_count": len(pair_rows),
         "geometry_model_json": str(
             loaded.model_json_path.resolve()
         ),
@@ -1256,7 +1256,7 @@ def main() -> None:
 
     print(
         "Multi-zone scoring complete: "
-        f"{len(rows)} masks"
+        f"{len(pair_rows)} masks"
     )
 
     print(
