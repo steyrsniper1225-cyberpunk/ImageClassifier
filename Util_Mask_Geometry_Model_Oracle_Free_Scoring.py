@@ -300,8 +300,17 @@ def score_local_candidate_at_center(
         - reference_signed_z_median
     )
 
+    # Experiment: limit negative-reference correction for tips.
+    effective_reference = reference_signed_z_median
+
+    if config.zone_name in ("tip1", "tip2"):
+        effective_reference = max(
+            reference_signed_z_median,
+            -1.0,
+        )
+
     corrected_candidate_values = np.maximum(
-        candidate_values - reference_signed_z_median,
+        candidate_values - effective_reference,
         0.0,
     )
 
