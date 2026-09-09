@@ -342,7 +342,7 @@ def scan_local_zone(
     zone: np.ndarray,
     canonical_median: np.ndarray,
     config: LocalScanConfig,
-    candidate_center_mask = (np.ndarray | None) = None,
+    candidate_center_mask = np.ndarray | None = None,
 ) -> LocalZoneScanResult:
     """Scan all eligible centres and return the maximum local score."""
     _validate_scan_config(config)
@@ -440,7 +440,7 @@ def scan_local_zone(
         candidate = score_local_candidate_at_center(
             signed_z=signed_z,
             zone=zone,
-            center_y=center_y
+            center_y=center_y,
             center_x=center_x,
             config=config,
         )
