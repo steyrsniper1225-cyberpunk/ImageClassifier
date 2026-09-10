@@ -1048,6 +1048,19 @@ def main() -> None:
                         defect_result,
                     )
                 )
+                
+                                # Raw evidence at each scorer-selected best candidate.
+                row[
+                    f"normal_{zone_name}_raw_candidate_top3_sum"
+                ] = float(
+                    normal_result.best_candidate.raw_candidate_top3_sum
+                )
+
+                row[
+                    f"defect_{zone_name}_raw_candidate_top3_sum"
+                ] = float(
+                    defect_result.best_candidate.raw_candidate_top3_sum
+                )
     
                 row[
                     f"{zone_name}_paired_score_shift"
@@ -1079,6 +1092,12 @@ def main() -> None:
             )
     
             pair_rows.append(row)
+    
+    if not pair_rows:
+        raise RuntimeError(
+            "No valid injected-defect pairs remained. "
+            "Check defect config and injected removed energy."
+        )
 
     csv_path = (
         args.output_dir
