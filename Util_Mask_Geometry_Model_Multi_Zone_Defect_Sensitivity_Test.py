@@ -132,6 +132,9 @@ class ReviewCandidate:
     best_y: int
     best_x: int
     patch_radius: int
+    defect_id: str = ""
+    raw_score: float = float("nan")
+    reference_signed_z_median: float = float("nan")
 
 
 def _stats(
@@ -619,6 +622,7 @@ def _save_zone_review(
     candidate_center_mask: np.ndarray,
     item: ReviewCandidate,
     path: Path,
+    defect_alpha: np.ndarray | None = None,
 ) -> None:
     panel = _gray_rgb(
         mask
@@ -646,6 +650,25 @@ def _save_zone_review(
         )
     )
 
+    if defect_alpha is not None:
+        if defect_alpha.shape != mask.shape:
+            raise ValueError(
+                "defect_alpha and mask "
+                "must have the same shape"
+            )
+
+        injected_pixels = (
+            defect_alpha > 0.0
+        )
+
+        panel[injected_pixels] = (
+            0.45 * panel[injected_pixels]
+            + 0.55 * np.array(
+                [255, 0, 255],
+                dtype=np.float32,
+            )
+        )
+
     panel = np.clip(
         panel,
         0,
@@ -654,7 +677,7 @@ def _save_zone_review(
 
     height, width = mask.shape
     header_height = 30
-    footer_height = 54
+    footer_height = 76
 
     canvas = Image.new(
         "RGB",
@@ -730,16 +753,28 @@ def _save_zone_review(
     draw.text(
         (8, footer_y),
         (
-            f"Score: {item.zone_score:.6f}  |  "
-            f"Best: y={item.best_y}, "
-            f"x={item.best_x}"
+            f"Corrected: {item.zone_score:.3f} | "
+            f"Raw: {item.raw_score:.3f}"
         ),
         fill="black",
     )
 
     draw.text(
-        (8, footer_y + 21),
-        item.source_path.name,
+        (8, footer_y + 20),
+        (
+            f"Reference: "
+            f"{item.reference_signed_z_median:.3f} | "
+            f"Best: [{item.best_y}, {item.best_x}]"
+        ),
+        fill="black",
+    )
+
+    draw.text(
+        (8, footer_y + 40),
+        (
+            f"{item.defect_id} | "
+            f"{item.source_path.name}"
+        ),
         fill="black",
     )
 
@@ -1032,6 +1067,130 @@ def main() -> None:
                         f"non-finite defect "
                         f"{zone_name} score"
                     )
+                    
+                # ------------------------------------------------
+                # Raw 4.0 hard gate에서 새롭게 Miss가 되는
+                # Tip1/Tip2 S1/S2 synthetic 사례를 즉시 저장
+                # ------------------------------------------------
+                corrected_thresholds = {
+                    "tip1": 3.89,
+                    "tip2": 3.45381546020507,
+                }
+
+                defect_id_lower = (
+                    spec.defect_id.lower()
+                )
+
+                is_s1_or_s2 = any(
+                    severity in defect_id_lower
+                    for severity in (
+                        "s1",
+                        "s2",
+                    )
+                )
+
+                if (
+                    zone_name == target_zone
+                    and zone_name in (
+                        "tip1",
+                        "tip2",
+                    )
+                    and is_s1_or_s2
+                ):
+                    best_candidate = (
+                        defect_result.best_candidate
+                    )
+
+                    raw_score = float(
+                        best_candidate
+                        .raw_candidate_top3_sum
+                    )
+
+                    corrected_score = float(
+                        defect_result.zone_score
+                    )
+
+                    passes_corrected = (
+                        corrected_score
+                        >= corrected_thresholds[
+                            zone_name
+                        ]
+                    )
+
+                    fails_raw_gate = (
+                        raw_score < 4.0
+                    )
+
+                    if (
+                        passes_corrected
+                        and fails_raw_gate
+                    ):
+                        if "s1" in defect_id_lower:
+                            severity_name = "s1"
+                        else:
+                            severity_name = "s2"
+
+                        review_item = ReviewCandidate(
+                            source_path=path,
+                            zone_name=zone_name,
+                            score_feature=(
+                                defect_result
+                                .score_feature
+                            ),
+                            zone_score=(
+                                corrected_score
+                            ),
+                            best_y=(
+                                best_candidate
+                                .center_y
+                            ),
+                            best_x=(
+                                best_candidate
+                                .center_x
+                            ),
+                            patch_radius=(
+                                configs[
+                                    zone_name
+                                ].patch_radius
+                            ),
+                            defect_id=(
+                                spec.defect_id
+                            ),
+                            raw_score=raw_score,
+                            reference_signed_z_median=(
+                                best_candidate
+                                .reference_signed_z_median
+                            ),
+                        )
+
+                        review_filename = (
+                            f"raw_{raw_score:07.3f}_"
+                            f"corrected_"
+                            f"{corrected_score:07.3f}_"
+                            f"{spec.defect_id}_"
+                            f"{path.stem}.png"
+                        )
+
+                        _save_zone_review(
+                            mask=defective,
+                            zone=zones[
+                                zone_name
+                            ],
+                            candidate_center_mask=(
+                                candidate_center_masks[
+                                    zone_name
+                                ]
+                            ),
+                            item=review_item,
+                            path=(
+                                args.output_dir
+                                / "reviews_raw_gate_miss"
+                                / zone_name
+                                / severity_name
+                                / review_filename
+                            ),
+                            defect_alpha=alpha,
+                        )
     
                 row.update(
                     _prefixed_result_fields(
