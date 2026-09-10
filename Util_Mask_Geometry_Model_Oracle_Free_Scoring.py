@@ -355,6 +355,7 @@ def score_local_candidate_at_center(
         reference_signed_z_median=reference_signed_z_median,
         local_signed_excess=local_signed_excess,
         local_corrected_top3_sum=local_corrected_top3_sum,
+        raw_candidate_top3_sum=raw_candidate_top3_sum,
     )
 
 
