@@ -309,7 +309,27 @@ def score_local_candidate_at_center(
             reference_signed_z_median,
             -1.0,
         )
+    
+        # Positive missing-metal evidence without reference correction.
+    raw_candidate_values = np.maximum(
+        candidate_values,
+        0.0,
+    )
 
+    raw_k = min(
+        config.top_k,
+        raw_candidate_values.size,
+    )
+
+    raw_top_values = np.partition(
+        raw_candidate_values,
+        raw_candidate_values.size - raw_k,
+    )[-raw_k:]
+
+    raw_candidate_top3_sum = float(
+        raw_top_values.sum()
+    )
+    
     corrected_candidate_values = np.maximum(
         candidate_values - effective_reference,
         0.0,
