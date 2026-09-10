@@ -303,7 +303,7 @@ def score_local_candidate_at_center(
     # Experiment: limit negative-reference correction for tips.
     effective_reference = reference_signed_z_median
 
-    if config.zone_name in ("tip1", "tip2"):
+    if config.zone_name in ("tip2"):
         effective_reference = max(
             reference_signed_z_median,
             -1.0,
