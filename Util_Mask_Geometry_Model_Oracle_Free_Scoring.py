@@ -45,6 +45,7 @@ class LocalCandidateScore:
     reference_signed_z_median: float
     local_signed_excess: float
     local_corrected_top3_sum: float
+    raw_candidate_top3_sum: float
 
 
 @dataclass(frozen=True)
