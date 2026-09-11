@@ -45,6 +45,12 @@ from Paired_Defect_Preservation_Test import (
     make_defect_alpha,
 )
 
+from Util_Tip_Geometry_Diagnostics import (
+    build_tip_geometry_references,
+    save_tip_geometry_qa,
+    tip_geometry_fields,
+)
+
 ZONE_NAMES = (
     "tip1",
     "tip2",
@@ -912,6 +918,16 @@ def main() -> None:
         parents=True,
         exist_ok=True,
     )
+    
+    geometry_refs = build_tip_geometry_references(
+        model.median,
+    )
+    
+    save_tip_geometry_qa(
+        model.median,
+        geometry_refs,
+        args.output_dir / "geometry_qa",
+    )
 
     pair_rows: list[
         dict[str, Any]
@@ -975,7 +991,9 @@ def main() -> None:
                     f"{path}: non-finite normal "
                     f"{zone_name} score"
                 )
-    
+        normal_geometry_fields = tip_geometry_fields(
+            normal, geometry_refs, "normal",
+        )
         # --------------------------------------------------------
         # 2. 각 synthetic defect를 같은 normal mask에 주입
         # --------------------------------------------------------
@@ -1248,6 +1266,13 @@ def main() -> None:
                 - normal_results[
                     target_zone
                 ].zone_score
+            )
+            
+            row.update(normal_geometry_fields)
+            row.update(
+                tip_geometry_fields(
+                    defective, geometry_refs, "defect",
+                )
             )
     
             pair_rows.append(row)
