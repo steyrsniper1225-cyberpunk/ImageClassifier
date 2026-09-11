@@ -20,6 +20,13 @@ ScoreFeature = Literal[
     "local_corrected_top3_sum",
 ]
 
+# Geometry diagnostic ROI.
+# Order: y_min, y_max_inclusive, x_min, x_max_inclusive
+TIP_GEOMETRY_BOUNDS = {
+    "tip1": (54, 77, 150, 173),
+    "tip2": (132, 163, 147, 178),
+}
+
 
 @dataclass(frozen=True)
 class LocalScanConfig:
