@@ -49,6 +49,7 @@ from Util_Tip_Geometry_Diagnostics import (
     build_tip_geometry_references,
     save_tip_geometry_qa,
     tip_geometry_fields,
+    measure_tip_geometry,
 )
 
 ZONE_NAMES = (
@@ -1274,6 +1275,33 @@ def main() -> None:
                     defective, geometry_refs, "defect",
                 )
             )
+            
+            if target_zone in geometry_refs:
+                ref = geometry_refs[target_zone]
+            
+                _, normal_profiles = measure_tip_geometry(
+                    normal, ref,
+                )
+                _, defect_profiles = measure_tip_geometry(
+                    defective, ref,
+                )
+            
+                point_shifts = np.array([
+                    d["retreat_px"] - n["retreat_px"]
+                    for n, d in zip(
+                        normal_profiles, defect_profiles
+                    )
+                ], dtype=float)
+            
+                valid = np.isfinite(point_shifts)
+            
+                row["paired_geometry_point_shift_max_px"] = (
+                    float(point_shifts[valid].max())
+                    if valid.any() else float("nan")
+                )
+                row["paired_geometry_point_valid_fraction"] = (
+                    float(valid.mean())
+                )
     
             pair_rows.append(row)
     
