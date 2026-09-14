@@ -45,7 +45,7 @@ from Paired_Defect_Preservation_Test import (
     make_defect_alpha,
 )
 
-from Util_Tip_Geometry_Diagnostics import (
+from Util_Tip_Local_Arc_Diagnostics import (
     build_tip_geometry_references,
     save_tip_geometry_qa,
     tip_geometry_fields,
